@@ -4,8 +4,8 @@
 
 | ID | Title | Status | Priority | Notes |
 | --- | --- | --- | --- | --- |
-| APP-003 | Bidirectional status, sprint, and ETA sync (Phase 4) | next | high | ADO service hooks/polling, status derivation, iteration cache, reconciler |
-| OPS-001 | Linux Docker deployment package (Phase 5) | planned | medium | Compose stack, env contract, health checks, and Caddy integration |
+| APP-003 | Bidirectional status, sprint, and ETA sync (Phase 4) | implemented (pending live verification) | high | ADO webhook, status derivation, iteration cache, reconciler all in-repo; service-hook registration script ready |
+| OPS-001 | Linux Docker deployment package (Phase 5) | next | medium | Compose stack, env contract, health checks, and Caddy integration |
 | APP-004 | Comment and attachment sync policy (Phase 6) | planned | medium | Private-note-first comment sync, link-existing workflow |
 | HARDEN-001 | Observability and replay protection | planned | medium | Structured logging, operator endpoints, reconciliation hardening |
 
@@ -23,4 +23,12 @@
 
 ## Current Implementation Gap
 
-Phases 1-3 are done: Oracle persistence, Zendesk custom fields (10 live in tenant), V1 routing matrix, durable SKIP LOCKED job queue, and the Zendesk->ADO create flow with field writeback. The next step is Phase 4: reverse sync from ADO to Zendesk (status derivation, sprint/ETA, service hooks, reconciliation).
+Phases 1-4 are implemented in-repo. Phase 4 adds:
+- `src/ado-status.ts` — status derivation, detail templates, iteration cache, fingerprint
+- `DevAzureClient.getWorkItem` / `.getIteration`
+- `src/ado-event-parser.ts` + `POST /webhooks/ado` (Basic auth)
+- `sync_ado_state_to_zendesk` handler with no-op fingerprint check
+- `src/reconciler.ts` — 15-minute cron polling safety net
+- `scripts/register-ado-service-hook.mjs` — subscription setup helper
+
+Live verification still pending: ADO service-hook subscription creation, end-to-end trigger of reverse sync on a real ticket/work-item pair. The next workstream is Phase 5 (Docker deployment).

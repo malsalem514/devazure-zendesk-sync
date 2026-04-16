@@ -1,4 +1,5 @@
 import type { AppConfig, DevAzureWorkItemReference, ExistingWorkItem, JsonPatchOperation } from './types.js';
+import type { IterationMetadata } from './ado-status.js';
 
 interface WiqlResponse {
   workItems?: Array<{
@@ -11,6 +12,29 @@ interface WorkItemResponse {
   id: number;
   rev: number;
   url: string;
+  fields?: Record<string, unknown>;
+}
+
+interface ClassificationNodeResponse {
+  id: number;
+  name: string;
+  path?: string;
+  attributes?: {
+    startDate?: string;
+    finishDate?: string;
+  };
+}
+
+export interface AdoWorkItemSnapshot {
+  id: string;
+  rev: number;
+  url: string;
+  state: string | null;
+  iterationPath: string | null;
+  title: string | null;
+  assignedTo: string | null;
+  tags: string[];
+  fields: Record<string, unknown>;
 }
 
 export class DevAzureClient {
@@ -114,4 +138,87 @@ export class DevAzureClient {
 
     return this.toRef(response);
   }
+
+  /**
+   * Fetch a full work item snapshot — used by the reverse-sync handler to
+   * derive `ADO Status`, sprint context, and the fingerprint for no-op skip.
+   */
+  async getWorkItem(workItemId: string | number): Promise<AdoWorkItemSnapshot | null> {
+    if (!/^\d+$/.test(String(workItemId))) {
+      throw new Error(`Invalid ADO work item ID: ${workItemId}`);
+    }
+    try {
+      const response = await this.request<WorkItemResponse>(
+        'GET',
+        `/wit/workitems/${workItemId}?$expand=fields`,
+      );
+      const fields = response.fields ?? {};
+      const rawTags = (fields['System.Tags'] as string | undefined) ?? '';
+      return {
+        id: String(response.id),
+        rev: response.rev,
+        url: response.url,
+        state: (fields['System.State'] as string | undefined) ?? null,
+        iterationPath: (fields['System.IterationPath'] as string | undefined) ?? null,
+        title: (fields['System.Title'] as string | undefined) ?? null,
+        assignedTo: extractDisplayName(fields['System.AssignedTo']),
+        tags: rawTags
+          .split(';')
+          .map((t) => t.trim())
+          .filter((t) => t.length > 0),
+        fields,
+      };
+    } catch (err) {
+      if (err instanceof Error && /failed with 404/.test(err.message)) return null;
+      throw err;
+    }
+  }
+
+  /**
+   * Fetch iteration metadata (display name + dated range) via the ADO
+   * classification nodes API. Returns `null` on 404 so callers can skip the
+   * cache write and fall through to "no sprint" rendering.
+   */
+  async getIteration(iterationPath: string): Promise<IterationMetadata | null> {
+    const projectPrefix = `${this.config.project}\\`;
+    const relative = iterationPath.startsWith(projectPrefix)
+      ? iterationPath.slice(projectPrefix.length)
+      : iterationPath;
+
+    const encoded = relative
+      .split('\\')
+      .filter((segment) => segment.length > 0)
+      .map(encodeURIComponent)
+      .join('/');
+
+    if (!encoded) return null;
+
+    try {
+      const response = await this.request<ClassificationNodeResponse>(
+        'GET',
+        `/wit/classificationnodes/Iterations/${encoded}?$depth=0`,
+      );
+      const startDate = response.attributes?.startDate ?? null;
+      const finishDate = response.attributes?.finishDate ?? null;
+      return {
+        displayName: response.name,
+        startDate,
+        finishDate,
+        hasDatedRange: Boolean(startDate && finishDate),
+      };
+    } catch (err) {
+      if (err instanceof Error && /failed with 404/.test(err.message)) return null;
+      throw err;
+    }
+  }
+}
+
+function extractDisplayName(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object' && 'displayName' in value) {
+    const name = (value as { displayName?: unknown }).displayName;
+    return typeof name === 'string' ? name : null;
+  }
+  return null;
 }

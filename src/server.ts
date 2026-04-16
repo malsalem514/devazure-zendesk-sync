@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AppConfig } from './types.js';
+import { parseAdoEvent } from './ado-event-parser.js';
 import { DevAzureClient } from './devazure-client.js';
 import { healthCheck as oracleHealthCheck } from './lib/oracle.js';
 import { buildSyncPlan } from './sync-planner.js';
@@ -84,11 +85,31 @@ function verifyWebhookRequest(
   }
 }
 
+function buildBasicAuthHeader(username: string, password: string): Buffer {
+  const token = Buffer.from(`${username}:${password}`, 'utf8').toString('base64');
+  return Buffer.from(`Basic ${token}`, 'utf8');
+}
+
+function requireBasicAuth(request: IncomingMessage, expected: Buffer | null): void {
+  if (!expected) {
+    // Deliberately require explicit configuration — no silent bypass like Zendesk's skip flag.
+    throw new HttpError('ADO webhook auth not configured', 500);
+  }
+  const received = Buffer.from(request.headers.authorization ?? '', 'utf8');
+  if (received.length !== expected.length || !timingSafeEqual(received, expected)) {
+    throw new HttpError('Missing or invalid ADO webhook credentials', 401);
+  }
+}
+
 export function createWebhookServer(config: AppConfig): Server {
   const devAzureClient = new DevAzureClient(config.devAzure);
   const expectedBearerToken = config.inboundBearerToken
     ? Buffer.from(`Bearer ${config.inboundBearerToken}`, 'utf8')
     : null;
+  const expectedAdoAuth =
+    config.devAzure.webhookUsername && config.devAzure.webhookPassword
+      ? buildBasicAuthHeader(config.devAzure.webhookUsername, config.devAzure.webhookPassword)
+      : null;
 
   return createServer(async (request, response) => {
     try {
@@ -116,6 +137,58 @@ export function createWebhookServer(config: AppConfig): Server {
       }
 
       console.log(`[devazure-zendesk-sync] ${request.method} ${path}`);
+
+      if (request.method === 'POST' && path === config.devAzure.webhookPath) {
+        requireBasicAuth(request, expectedAdoAuth);
+
+        const rawBody = await readRequestBody(request);
+        const event = parseAdoEvent(rawBody);
+        const dedupKey = `ado:${event.eventType}:${event.workItemId}:${event.revision ?? event.id}`;
+
+        if (config.dryRun) {
+          console.log(
+            `[devazure-zendesk-sync] dry-run ado event=${event.eventType} workItem=${event.workItemId} rev=${event.revision}`,
+          );
+          json(response, 202, {
+            ok: true,
+            action: 'dry-run',
+            eventType: event.eventType,
+            workItemId: event.workItemId,
+            revision: event.revision,
+          });
+          return;
+        }
+
+        const result = await persistEventAndEnqueueJob(
+          {
+            sourceSystem: 'ado',
+            eventType: event.eventType,
+            sourceEventId: event.id,
+            dedupKey,
+            payload: rawBody,
+          },
+          {
+            jobType: 'sync_ado_state_to_zendesk',
+            payload: { workItemId: event.workItemId, revision: event.revision },
+          },
+        );
+
+        if (result == null) {
+          json(response, 202, { ok: true, action: 'duplicate', workItemId: event.workItemId });
+          return;
+        }
+
+        console.log(
+          `[devazure-zendesk-sync] enqueued sync_ado_state_to_zendesk workItem=${event.workItemId} event=${result.eventId}`,
+        );
+        json(response, 202, {
+          ok: true,
+          action: 'enqueued',
+          workItemId: event.workItemId,
+          eventId: result.eventId,
+        });
+        return;
+      }
 
       if (request.method !== 'POST' || path !== config.webhookPath) {
         json(response, 404, { ok: false, message: 'Not found' });
