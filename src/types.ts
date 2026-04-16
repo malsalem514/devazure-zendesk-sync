@@ -7,6 +7,8 @@ export interface AppConfig {
     webhookSecret?: string;
     baseUrl?: string;
     skipSignatureVerification: boolean;
+    apiUsername?: string;
+    apiToken?: string;
   };
   devAzure: {
     orgUrl: string;
@@ -17,6 +19,13 @@ export interface AppConfig {
     iterationPath?: string;
     assignedTo?: string;
     apiVersion: string;
+  };
+  oracle: {
+    user: string;
+    password: string;
+    connectString: string;
+    poolMin: number;
+    poolMax: number;
   };
 }
 
@@ -41,6 +50,11 @@ export interface ZendeskTicketDetail {
   groupId: string | null;
   brandId: string | null;
   viaChannel: string | null;
+  // V1 routing and mapping fields (from Zendesk custom fields)
+  product: string | null;
+  orgName: string | null;
+  caseType: string | null;
+  crf: string | null;
 }
 
 export interface ZendeskTicketEvent {

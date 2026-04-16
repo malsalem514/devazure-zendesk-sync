@@ -18,6 +18,13 @@ const baseConfig = {
     workItemType: 'Bug',
     apiVersion: '7.1',
   },
+  oracle: {
+    user: 'test',
+    password: 'test',
+    connectString: 'localhost/TEST',
+    poolMin: 1,
+    poolMax: 2,
+  },
 };
 
 test('buildSyncPlan creates a create plan for a normal ticket event', () => {
@@ -43,6 +50,10 @@ test('buildSyncPlan creates a create plan for a normal ticket event', () => {
       groupId: '6832953668990',
       brandId: '6832963029118',
       viaChannel: 'web_service',
+      product: 'Financials',
+      orgName: 'Acme Corp',
+      caseType: 'Defect',
+      crf: 'CRF-001',
     },
     commentId: '8645910207102',
     commentBody: 'Latest customer-visible comment',
@@ -60,6 +71,29 @@ test('buildSyncPlan creates a create plan for a normal ticket event', () => {
   assert.ok(
     plan.operations.some((operation) => operation.path === '/relations/-'),
   );
+  // V1 required fields
+  assert.ok(
+    plan.operations.some((op) => op.path === '/fields/Custom.Bucket' && op.value === 'Support'),
+  );
+  assert.ok(
+    plan.operations.some((op) => op.path === '/fields/Custom.Unplanned' && op.value === true),
+  );
+  assert.ok(
+    plan.operations.some((op) => op.path === '/fields/Microsoft.VSTS.Common.ValueArea'),
+  );
+  // Routing: Financials -> Vision Financials area path
+  assert.ok(
+    plan.operations.some((op) => op.path === '/fields/System.AreaPath' && op.value?.includes('Financials')),
+  );
+  // Field mapping
+  assert.ok(
+    plan.operations.some((op) => op.path === '/fields/Custom.Client' && op.value === 'Acme Corp'),
+  );
+  assert.ok(
+    plan.operations.some((op) => op.path === '/fields/Custom.CRF' && op.value === 'CRF-001'),
+  );
+  // Case Type -> work item type
+  assert.equal(plan.workItemType, 'Bug');
 });
 
 test('buildSyncPlan returns noop for destructive events', () => {
@@ -85,6 +119,10 @@ test('buildSyncPlan returns noop for destructive events', () => {
       groupId: null,
       brandId: null,
       viaChannel: 'web_service',
+      product: null,
+      orgName: null,
+      caseType: null,
+      crf: null,
     },
     commentId: null,
     commentBody: null,

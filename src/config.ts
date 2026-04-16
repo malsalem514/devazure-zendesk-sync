@@ -8,14 +8,14 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
 }
 
-function parsePort(value: string | undefined, fallback: number): number {
+function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (value == null || value.trim() === '') {
     return fallback;
   }
 
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`PORT must be a positive integer. Received: ${value}`);
+    throw new Error(`Expected a positive integer. Received: ${value}`);
   }
 
   return parsed;
@@ -37,7 +37,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   );
 
   return {
-    port: parsePort(env['PORT'], 8787),
+    port: parsePositiveInt(env['PORT'], 8787),
     webhookPath: env['WEBHOOK_PATH']?.trim() || '/webhooks/zendesk',
     dryRun: parseBoolean(env['SYNC_DRY_RUN'], true),
     inboundBearerToken: env['INBOUND_BEARER_TOKEN']?.trim() || undefined,
@@ -47,6 +47,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         : requireEnv('ZENDESK_WEBHOOK_SECRET', env),
       baseUrl: env['ZENDESK_BASE_URL']?.trim() || undefined,
       skipSignatureVerification,
+      apiUsername: env['ZENDESK_API_USERNAME']?.trim() || undefined,
+      apiToken: env['ZENDESK_API_TOKEN']?.trim() || undefined,
     },
     devAzure: {
       orgUrl: requireEnv('DEVAZURE_ORG_URL', env),
@@ -57,6 +59,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       iterationPath: env['DEVAZURE_ITERATION_PATH']?.trim() || undefined,
       assignedTo: env['DEVAZURE_ASSIGNED_TO']?.trim() || undefined,
       apiVersion: env['DEVAZURE_API_VERSION']?.trim() || '7.1',
+    },
+    oracle: {
+      user: requireEnv('ORACLE_DB_USERNAME', env),
+      password: requireEnv('ORACLE_DB_PASSWORD', env),
+      connectString: `${requireEnv('ORACLE_DB_HOST', env)}/${requireEnv('ORACLE_DB_SERVICE', env)}`,
+      poolMin: parsePositiveInt(env['ORACLE_POOL_MIN'], 2),
+      poolMax: parsePositiveInt(env['ORACLE_POOL_MAX'], 10),
     },
   };
 }

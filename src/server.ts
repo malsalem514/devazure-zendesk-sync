@@ -2,9 +2,11 @@ import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AppConfig } from './types.js';
 import { DevAzureClient } from './devazure-client.js';
+import { healthCheck as oracleHealthCheck } from './lib/oracle.js';
 import { buildSyncPlan } from './sync-planner.js';
 import { parseZendeskTicketEvent } from './zendesk-event-parser.js';
 import { verifyZendeskSignature } from './zendesk-signature.js';
+import { persistEventAndEnqueueJob } from './worker.js';
 
 class HttpError extends Error {
   constructor(
@@ -92,12 +94,24 @@ export function createWebhookServer(config: AppConfig): Server {
     try {
       const path = getPath(request);
 
+      if (request.method === 'GET' && path === '/healthz') {
+        json(response, 200, { ok: true, dryRun: config.dryRun });
+        return;
+      }
+
       if (request.method === 'GET' && path === '/health') {
         json(response, 200, {
           ok: true,
           dryRun: config.dryRun,
           webhookPath: config.webhookPath,
         });
+        return;
+      }
+
+      if (request.method === 'GET' && path === '/readyz') {
+        const oracleOk = await oracleHealthCheck();
+        const status = oracleOk ? 200 : 503;
+        json(response, status, { ok: oracleOk, oracle: oracleOk });
         return;
       }
 
@@ -113,24 +127,14 @@ export function createWebhookServer(config: AppConfig): Server {
       const rawBody = await readRequestBody(request);
       verifyWebhookRequest(request, rawBody, config);
 
+      // Parse just enough to get ticket ID and event type for dedup
       const event = parseZendeskTicketEvent(rawBody);
-      const existingWorkItem = config.dryRun
-        ? null
-        : await devAzureClient.findWorkItemByZendeskTicketId(event.detail.id);
-      const plan = buildSyncPlan(event, config, existingWorkItem);
+      const dedupKey = `zendesk:${event.type}:${event.detail.id}:${event.id}`;
 
-      if (plan.action === 'noop') {
-        console.log(`[devazure-zendesk-sync] noop ticket=${plan.ticketId}: ${plan.reason}`);
-        json(response, 202, {
-          ok: true,
-          action: plan.action,
-          reason: plan.reason,
-          ticketId: plan.ticketId,
-        });
-        return;
-      }
-
+      // Dry-run mode: show what would happen without persisting or enqueuing
       if (config.dryRun) {
+        const existingWorkItem = await devAzureClient.findWorkItemByZendeskTicketId(event.detail.id);
+        const plan = buildSyncPlan(event, config, existingWorkItem);
         console.log(`[devazure-zendesk-sync] dry-run ${plan.action} ticket=${plan.ticketId}`);
         json(response, 202, {
           ok: true,
@@ -145,17 +149,23 @@ export function createWebhookServer(config: AppConfig): Server {
         return;
       }
 
-      const result = plan.action === 'create'
-        ? await devAzureClient.createWorkItem(plan.workItemType, plan.operations)
-        : await devAzureClient.updateWorkItem(existingWorkItem!.id, plan.operations);
+      // Durable processing: atomically persist event + enqueue job, return 202
+      const result = await persistEventAndEnqueueJob(
+        { sourceSystem: 'zendesk', eventType: event.type, sourceEventId: event.id, dedupKey, payload: rawBody },
+        { jobType: 'create_ado_from_zendesk', payload: { rawBody, ticketId: event.detail.id } },
+      );
 
-      console.log(`[devazure-zendesk-sync] ${plan.action} ticket=${plan.ticketId} workItem=${result.id}`);
-      json(response, 200, {
+      if (result == null) {
+        json(response, 202, { ok: true, action: 'duplicate', ticketId: event.detail.id });
+        return;
+      }
+
+      console.log(`[devazure-zendesk-sync] enqueued create_ado_from_zendesk ticket=${event.detail.id} event=${result.eventId}`);
+      json(response, 202, {
         ok: true,
-        action: plan.action,
-        ticketId: plan.ticketId,
-        workItemId: result.id,
-        workItemUrl: result.url,
+        action: 'enqueued',
+        ticketId: event.detail.id,
+        eventId: result.eventId,
       });
     } catch (error) {
       const statusCode = error instanceof HttpError ? error.statusCode : 500;

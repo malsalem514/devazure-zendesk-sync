@@ -56,6 +56,10 @@ function parseDetail(rawDetail: unknown): ZendeskTicketDetail {
     groupId: asOptionalString(detail['group_id']),
     brandId: asOptionalString(detail['brand_id']),
     viaChannel: via ? asOptionalString(via['channel']) : null,
+    product: asOptionalString(detail['product']),
+    orgName: asOptionalString(detail['org_name']),
+    caseType: asOptionalString(detail['case_type']),
+    crf: asOptionalString(detail['crf']),
   };
 }
 

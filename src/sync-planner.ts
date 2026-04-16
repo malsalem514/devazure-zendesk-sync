@@ -1,4 +1,5 @@
 import type { AppConfig, ExistingWorkItem, JsonPatchOperation, SyncPlan, ZendeskTicketEvent } from './types.js';
+import { resolveRoute, resolveWorkItemType } from './routing.js';
 
 function escapeHtml(value: string): string {
   return value
@@ -116,7 +117,8 @@ function buildOperations(
   title: string,
   description: string,
   tags: string[],
-  includeHyperlink: boolean,
+  workItemType: string,
+  isCreate: boolean,
 ): JsonPatchOperation[] {
   const operations: JsonPatchOperation[] = [
     { op: 'add', path: '/fields/System.Title', value: title },
@@ -138,31 +140,52 @@ function buildOperations(
     });
   }
 
+  // Required ADO fields for creation
+  if (isCreate) {
+    operations.push({ op: 'add', path: '/fields/Custom.Bucket', value: 'Support' });
+    operations.push({ op: 'add', path: '/fields/Custom.Unplanned', value: true });
+
+    // Bug and User Story require ValueArea
+    if (workItemType === 'Bug' || workItemType === 'User Story') {
+      operations.push({ op: 'add', path: '/fields/Microsoft.VSTS.Common.ValueArea', value: 'Business' });
+    }
+
+    // Routing: resolve area path and product from Zendesk product family
+    const route = resolveRoute(event.detail.product);
+    operations.push({ op: 'add', path: '/fields/System.AreaPath', value: route.areaPath });
+    if (route.customProduct) {
+      operations.push({ op: 'add', path: '/fields/Custom.Product', value: route.customProduct });
+    }
+  }
+
+  // Config-level overrides (take precedence over routing when set)
   if (config.devAzure.areaPath) {
-    operations.push({
-      op: 'add',
-      path: '/fields/System.AreaPath',
-      value: config.devAzure.areaPath,
-    });
+    const existing = operations.findIndex((op) => op.path === '/fields/System.AreaPath');
+    if (existing >= 0) {
+      operations[existing] = { op: 'add', path: '/fields/System.AreaPath', value: config.devAzure.areaPath };
+    } else {
+      operations.push({ op: 'add', path: '/fields/System.AreaPath', value: config.devAzure.areaPath });
+    }
   }
 
   if (config.devAzure.iterationPath) {
-    operations.push({
-      op: 'add',
-      path: '/fields/System.IterationPath',
-      value: config.devAzure.iterationPath,
-    });
+    operations.push({ op: 'add', path: '/fields/System.IterationPath', value: config.devAzure.iterationPath });
   }
 
   if (config.devAzure.assignedTo) {
-    operations.push({
-      op: 'add',
-      path: '/fields/System.AssignedTo',
-      value: config.devAzure.assignedTo,
-    });
+    operations.push({ op: 'add', path: '/fields/System.AssignedTo', value: config.devAzure.assignedTo });
   }
 
-  const hyperlinkUrl = includeHyperlink
+  // Zendesk field mappings
+  if (event.detail.orgName) {
+    operations.push({ op: 'add', path: '/fields/Custom.Client', value: event.detail.orgName });
+  }
+  if (event.detail.crf) {
+    operations.push({ op: 'add', path: '/fields/Custom.CRF', value: event.detail.crf });
+  }
+
+  // Hyperlink to Zendesk ticket (only on create)
+  const hyperlinkUrl = isCreate
     ? zendeskTicketUrl(config.zendesk.baseUrl, event.detail.id)
     : null;
 
@@ -191,19 +214,21 @@ export function buildSyncPlan(
   const skipReason = shouldSkipEvent(event.type);
   const titleSubject = event.detail.subject ?? event.subject ?? 'Untitled Zendesk ticket';
   const title = `[Zendesk #${event.detail.id}] ${titleSubject}`;
+  const workItemType = resolveWorkItemType(event.detail.caseType);
 
   if (skipReason) {
     return {
       action: 'noop',
       reason: skipReason,
       ticketId: event.detail.id,
-      workItemType: config.devAzure.workItemType,
+      workItemType,
       title,
       operations: [],
       tags: [],
     };
   }
 
+  const isCreate = existingWorkItem == null;
   const description = buildDescription(event, config);
   const tags = buildTags(event);
   const operations = buildOperations(
@@ -212,7 +237,8 @@ export function buildSyncPlan(
     title,
     description,
     tags,
-    existingWorkItem == null,
+    workItemType,
+    isCreate,
   );
 
   if (existingWorkItem) {
@@ -220,12 +246,12 @@ export function buildSyncPlan(
   }
 
   return {
-    action: existingWorkItem ? 'update' : 'create',
+    action: isCreate ? 'create' : 'update',
     reason: existingWorkItem
       ? `Updating existing DevAzure work item ${existingWorkItem.id}`
       : 'Creating new DevAzure work item for Zendesk ticket',
     ticketId: event.detail.id,
-    workItemType: config.devAzure.workItemType,
+    workItemType,
     title,
     operations,
     tags,
