@@ -3,29 +3,13 @@
  * fields are attached to each. Read-only — no changes made.
  */
 
-import pkg from 'node-zendesk';
-const { createClient } = pkg;
+import { createZendeskClient, V1_ADO_FIELD_TITLES } from './lib/zendesk.mjs';
 
-const baseUrl = process.env.ZENDESK_BASE_URL?.replace(/\/$/, '');
-const username = process.env.ZENDESK_API_USERNAME;
-const token = process.env.ZENDESK_API_TOKEN;
-
-if (!baseUrl || !username || !token) {
-  console.error('Missing: ZENDESK_BASE_URL, ZENDESK_API_USERNAME, ZENDESK_API_TOKEN');
-  process.exit(1);
-}
-
-const ADO_FIELD_TITLES = [
-  'ADO Work Item ID', 'ADO Work Item URL', 'ADO Status', 'ADO Status Detail',
-  'ADO Sprint', 'ADO Sprint Start', 'ADO Sprint End', 'ADO ETA',
-  'ADO Sync Health', 'ADO Last Sync At',
-];
-
-const client = createClient({ username, token, endpointUri: `${baseUrl}/api/v2` });
+const { client } = createZendeskClient();
 
 const fields = await client.ticketfields.list();
 const adoFieldsById = new Map(
-  fields.filter((f) => ADO_FIELD_TITLES.includes(f.title)).map((f) => [f.id, f]),
+  fields.filter((f) => V1_ADO_FIELD_TITLES.includes(f.title)).map((f) => [f.id, f]),
 );
 console.log(`Found ${adoFieldsById.size} ADO fields in tenant.`);
 

@@ -14,17 +14,11 @@
  *     --agents-only --attach-ado
  */
 
-import pkg from 'node-zendesk';
-const { createClient } = pkg;
-
-const baseUrl = process.env.ZENDESK_BASE_URL?.replace(/\/$/, '');
-const username = process.env.ZENDESK_API_USERNAME;
-const token = process.env.ZENDESK_API_TOKEN;
-
-if (!baseUrl || !username || !token) {
-  console.error('Missing: ZENDESK_BASE_URL, ZENDESK_API_USERNAME, ZENDESK_API_TOKEN');
-  process.exit(1);
-}
+import {
+  createZendeskClient,
+  V1_ADO_FIELD_TITLES,
+  unwrapTicketForm,
+} from './lib/zendesk.mjs';
 
 function arg(flag) {
   const i = process.argv.indexOf(flag);
@@ -45,20 +39,10 @@ if (!sourceId || !name) {
   process.exit(1);
 }
 
-const ADO_FIELD_TITLES = [
-  'ADO Work Item ID', 'ADO Work Item URL', 'ADO Status', 'ADO Status Detail',
-  'ADO Sprint', 'ADO Sprint Start', 'ADO Sprint End', 'ADO ETA',
-  'ADO Sync Health', 'ADO Last Sync At',
-];
-
-const client = createClient({ username, token, endpointUri: `${baseUrl}/api/v2` });
-
-function unwrap(resp) {
-  return resp?.result ?? resp?.ticket_form ?? resp;
-}
+const { client, baseUrl } = createZendeskClient();
 
 console.log(`Fetching source form ${sourceId}…`);
-const source = unwrap(await client.ticketforms.show(sourceId));
+const source = unwrapTicketForm(await client.ticketforms.show(sourceId));
 const sourceFieldIds = source?.ticket_field_ids ?? [];
 console.log(`  "${source.name}" — ${sourceFieldIds.length} fields`);
 
@@ -68,10 +52,10 @@ if (attachAdo) {
   console.log('Resolving ADO field IDs by title…');
   const allFields = await client.ticketfields.list();
   const adoIds = allFields
-    .filter((f) => ADO_FIELD_TITLES.includes(f.title))
+    .filter((f) => V1_ADO_FIELD_TITLES.includes(f.title))
     .map((f) => f.id);
-  if (adoIds.length !== ADO_FIELD_TITLES.length) {
-    console.warn(`  Warning: expected ${ADO_FIELD_TITLES.length} ADO fields, found ${adoIds.length}`);
+  if (adoIds.length !== V1_ADO_FIELD_TITLES.length) {
+    console.warn(`  Warning: expected ${V1_ADO_FIELD_TITLES.length} ADO fields, found ${adoIds.length}`);
   }
   fieldIds = [...new Set([...fieldIds, ...adoIds])];
   console.log(`  Will attach ${adoIds.length} ADO field(s); total on new form: ${fieldIds.length}`);
@@ -84,11 +68,14 @@ const payload = {
     active: true,
     end_user_visible: !agentsOnly,
     ticket_field_ids: fieldIds,
+    // Push the clone below the source in the admin form-ordering UI. +100
+    // leaves room for a handful of further clones before colliding with
+    // adjacent forms' positions; admins can reorder freely afterward.
     position: (source.position ?? 0) + 100,
   },
 };
 
 console.log(`Creating form "${name}" (end_user_visible=${payload.ticket_form.end_user_visible})…`);
-const created = unwrap(await client.ticketforms.create(payload));
+const created = unwrapTicketForm(await client.ticketforms.create(payload));
 console.log(`✓ Created form ${created.id} — "${created.name}"`);
 console.log(`  URL: ${baseUrl}/admin/objects-rules/tickets/ticket-forms/edit/${created.id}`);
