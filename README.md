@@ -2,6 +2,18 @@
 
 Standalone service for integrating Zendesk with DevAzure.
 
+## Project Context
+
+The repository currently contains a safe starter implementation, but the target client deliverable is broader than the starter code alone.
+
+For implementation work, start with:
+
+- [docs/README.md](./docs/README.md) for the document index and canonical read order
+- [conductor/product.md](./conductor/product.md) for product scope
+- [conductor/tech-stack.md](./conductor/tech-stack.md) for current vs target architecture
+- [conductor/workflow.md](./conductor/workflow.md) for document precedence and working rules
+- [conductor/tracks.md](./conductor/tracks.md) for the current workstream list
+
 ## Default assumption
 
 This starter assumes you want **Zendesk ticket events to create or update DevAzure work items**.
@@ -35,6 +47,7 @@ If you meant a different flow, such as DevAzure test cases back into Zendesk or 
 ```bash
 cd ./devazure-zendesk-sync
 cp .env.example .env
+edit .env with your real credentials
 npm run typecheck
 npm run test
 ```
@@ -45,6 +58,8 @@ To build and start:
 npm run build
 npm start
 ```
+
+`npm start` automatically loads values from `.env` when that file exists.
 
 Default webhook URL:
 
@@ -68,6 +83,15 @@ This package is designed to be delivered independently from any internal monorep
 - The generated bundle lands in `release/devazure-zendesk-sync/`.
 
 See [CLIENT-HANDOFF.md](./CLIENT-HANDOFF.md) for the delivery checklist.
+
+## Project docs
+
+The fuller spec and design set now lives inside this standalone project:
+
+- [docs/README.md](./docs/README.md)
+- [docs/proposals/ZENDESK-AZURE-DEVOPS-INTEGRATION-TECHNICAL-SPEC.md](./docs/proposals/ZENDESK-AZURE-DEVOPS-INTEGRATION-TECHNICAL-SPEC.md)
+- [docs/proposals/ZENDESK-ADO-FULL-SOLUTION-DESIGN.md](./docs/proposals/ZENDESK-ADO-FULL-SOLUTION-DESIGN.md)
+- [docs/reports/2026-04-15-zendesk-ado-sota-research-gap-analysis.md](./docs/reports/2026-04-15-zendesk-ado-sota-research-gap-analysis.md)
 
 ## Environment
 

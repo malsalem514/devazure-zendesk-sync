@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "start": "node dist/index.js",
+    "start": "node --env-file-if-exists=.env dist/index.js",
     "dev": "tsc -p tsconfig.json --watch",
     "test": "npm run build && node --test test/*.test.mjs",
     "package:standalone": "npm run build && node ./scripts/package-standalone.mjs"
