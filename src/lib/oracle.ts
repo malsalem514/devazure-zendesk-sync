@@ -6,6 +6,10 @@ let poolPromise: Promise<oracledb.Pool> | null = null;
 async function createPool(config: AppConfig['oracle']): Promise<oracledb.Pool> {
   oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
   oracledb.autoCommit = true;
+  // Return CLOB columns (SYNC_JOB.PAYLOAD, SYNC_EVENT.PAYLOAD) as strings
+  // rather than Lob objects — otherwise JSON.parse(job.PAYLOAD) hits Lob's
+  // default toString() and fails with `"[object Object]" is not valid JSON`.
+  oracledb.fetchAsString = [oracledb.CLOB];
 
   const pool = await oracledb.createPool({
     user: config.user,

@@ -1,8 +1,10 @@
 declare module 'oracledb' {
   namespace oracledb {
     const OUT_FORMAT_OBJECT: number;
+    const CLOB: number;
     let outFormat: number;
     let autoCommit: boolean;
+    let fetchAsString: number[];
 
     function createPool(config: Record<string, unknown>): Promise<Pool>;
 
