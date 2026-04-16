@@ -5,7 +5,7 @@
 | ID | Title | Status | Priority | Notes |
 | --- | --- | --- | --- | --- |
 | APP-003 | Bidirectional status, sprint, and ETA sync (Phase 4) | implemented (pending live verification) | high | ADO webhook, status derivation, iteration cache, reconciler all in-repo; service-hook registration script ready |
-| OPS-001 | Linux Docker deployment package (Phase 5) | next | medium | Compose stack, env contract, health checks, and Caddy integration |
+| OPS-001 | Linux Docker deployment package (Phase 5) | implemented (pending live deploy) | medium | Dockerfile (multi-stage, node:24-slim, 250MB), docker-compose.yml (loopback bind, extra_hosts), Caddy site block documented; docker build verified locally |
 | APP-004 | Comment and attachment sync policy (Phase 6) | planned | medium | Private-note-first comment sync, link-existing workflow |
 | HARDEN-001 | Observability and replay protection | planned | medium | Structured logging, operator endpoints, reconciliation hardening |
 
@@ -23,12 +23,10 @@
 
 ## Current Implementation Gap
 
-Phases 1-4 are implemented in-repo. Phase 4 adds:
-- `src/ado-status.ts` — status derivation, detail templates, iteration cache, fingerprint
-- `DevAzureClient.getWorkItem` / `.getIteration`
-- `src/ado-event-parser.ts` + `POST /webhooks/ado` (Basic auth)
-- `sync_ado_state_to_zendesk` handler with no-op fingerprint check
-- `src/reconciler.ts` — 15-minute cron polling safety net
-- `scripts/register-ado-service-hook.mjs` — subscription setup helper
+Phases 1-5 are implemented in-repo. Phase 5 adds:
+- `Dockerfile` — multi-stage node:24-slim build, non-root `node` user, built-in-fetch HEALTHCHECK, `UV_THREADPOOL_SIZE=10`
+- `docker-compose.yml` — loopback bind (`127.0.0.1:8787`), `extra_hosts` for `srv-db-100`, Watchtower label
+- `.dockerignore`
+- `docs/ops/deployment.md` — bring-up runbook + Caddy site block
 
-Live verification still pending: ADO service-hook subscription creation, end-to-end trigger of reverse sync on a real ticket/work-item pair. The next workstream is Phase 5 (Docker deployment).
+Live deploy tasks still pending (ops-side, not code): populate `.env` on `ubuntu-docker-host`, bring the stack up, add the Caddy site block, run `scripts/register-ado-service-hook.mjs` (or let the reconciler cover it), verify e2e from a real Zendesk ticket. After that, the next workstream is Phase 6 (comment/attachment sync, link-existing workflow).

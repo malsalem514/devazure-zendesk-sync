@@ -1,0 +1,31 @@
+# Compose stack for the Jestais deployment on ubuntu-docker-host (172.16.20.97).
+# Caddy runs on the host and proxies to 127.0.0.1:8787 — the port is deliberately
+# bound to loopback only so the container is not reachable on the LAN.
+
+services:
+  zendesk-ado-sync:
+    build: .
+    image: zendesk-ado-sync:latest
+    container_name: zendesk-ado-sync
+    restart: unless-stopped
+
+    # Loopback-only publish — Caddy does TLS termination and host->container.
+    ports:
+      - "127.0.0.1:8787:8787"
+
+    env_file: .env
+
+    # Oracle connect string uses the DB-network hostname `srv-db-100`; the
+    # container has no DNS for it, so we pin the IP here. Coordinate with
+    # ops if srv-db-100 ever moves off 172.16.25.63.
+    extra_hosts:
+      - "srv-db-100:172.16.25.63"
+
+    # Watchtower on the host auto-pulls labelled containers; leave the label
+    # in place even though we build locally, so future registry-hosted images
+    # inherit the same behavior.
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+    # Docker's built-in HEALTHCHECK is defined in the Dockerfile; compose-level
+    # overrides are intentionally omitted so the image's defaults apply.
