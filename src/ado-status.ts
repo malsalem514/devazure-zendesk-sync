@@ -107,7 +107,10 @@ export interface IterationMetadata {
   displayName: string;
   startDate: string | null;
   finishDate: string | null;
-  hasDatedRange: boolean;
+}
+
+export function hasDatedRange(iteration: IterationMetadata | null | undefined): boolean {
+  return Boolean(iteration?.startDate && iteration?.finishDate);
 }
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -167,12 +170,9 @@ export async function fetchIterationMetadata(
 }
 
 function rowToMetadata(row: IterationCacheRow): IterationMetadata {
-  const startDate = row.START_DATE ? row.START_DATE.toISOString() : null;
-  const finishDate = row.FINISH_DATE ? row.FINISH_DATE.toISOString() : null;
   return {
     displayName: row.DISPLAY_NAME,
-    startDate,
-    finishDate,
-    hasDatedRange: Boolean(startDate && finishDate),
+    startDate: row.START_DATE ? row.START_DATE.toISOString() : null,
+    finishDate: row.FINISH_DATE ? row.FINISH_DATE.toISOString() : null,
   };
 }

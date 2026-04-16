@@ -1,5 +1,12 @@
+import { buildBasicAuthHeaderValue } from './lib/basic-auth.js';
 import type { AppConfig, DevAzureWorkItemReference, ExistingWorkItem, JsonPatchOperation } from './types.js';
 import type { IterationMetadata } from './ado-status.js';
+
+export class DevAzureHttpError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+  }
+}
 
 interface WiqlResponse {
   workItems?: Array<{
@@ -43,7 +50,7 @@ export class DevAzureClient {
   private readonly apiVersion: string;
 
   constructor(private readonly config: AppConfig['devAzure']) {
-    this.authHeader = `Basic ${Buffer.from(`:${config.pat}`).toString('base64')}`;
+    this.authHeader = buildBasicAuthHeaderValue('', config.pat);
     this.baseUrl = `${config.orgUrl.replace(/\/$/, '')}/${config.project}/_apis`;
     this.apiVersion = config.apiVersion;
   }
@@ -79,7 +86,10 @@ export class DevAzureClient {
 
     if (!response.ok) {
       const payload = await response.text();
-      throw new Error(`DevAzure ${method} ${path} failed with ${response.status}: ${payload}`);
+      throw new DevAzureHttpError(
+        response.status,
+        `DevAzure ${method} ${path} failed with ${response.status}: ${payload}`,
+      );
     }
 
     return response.json() as Promise<T>;
@@ -147,10 +157,19 @@ export class DevAzureClient {
     if (!/^\d+$/.test(String(workItemId))) {
       throw new Error(`Invalid ADO work item ID: ${workItemId}`);
     }
+    // Fetch only the fields the reverse-sync handler actually reads — ADO
+    // work items carry dozens of custom fields we'd otherwise download+parse.
+    const fieldList = [
+      'System.State',
+      'System.IterationPath',
+      'System.Title',
+      'System.AssignedTo',
+      'System.Tags',
+    ].join(',');
     try {
       const response = await this.request<WorkItemResponse>(
         'GET',
-        `/wit/workitems/${workItemId}?$expand=fields`,
+        `/wit/workitems/${workItemId}?fields=${fieldList}`,
       );
       const fields = response.fields ?? {};
       const rawTags = (fields['System.Tags'] as string | undefined) ?? '';
@@ -169,7 +188,7 @@ export class DevAzureClient {
         fields,
       };
     } catch (err) {
-      if (err instanceof Error && /failed with 404/.test(err.message)) return null;
+      if (err instanceof DevAzureHttpError && err.status === 404) return null;
       throw err;
     }
   }
@@ -198,16 +217,13 @@ export class DevAzureClient {
         'GET',
         `/wit/classificationnodes/Iterations/${encoded}?$depth=0`,
       );
-      const startDate = response.attributes?.startDate ?? null;
-      const finishDate = response.attributes?.finishDate ?? null;
       return {
         displayName: response.name,
-        startDate,
-        finishDate,
-        hasDatedRange: Boolean(startDate && finishDate),
+        startDate: response.attributes?.startDate ?? null,
+        finishDate: response.attributes?.finishDate ?? null,
       };
     } catch (err) {
-      if (err instanceof Error && /failed with 404/.test(err.message)) return null;
+      if (err instanceof DevAzureHttpError && err.status === 404) return null;
       throw err;
     }
   }

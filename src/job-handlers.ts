@@ -5,6 +5,7 @@ import {
   deriveAdoStatus,
   fetchIterationMetadata,
   formatStatusDetail,
+  hasDatedRange,
   type AdoStatusTag,
 } from './ado-status.js';
 import { DevAzureClient } from './devazure-client.js';
@@ -14,7 +15,7 @@ import { buildSyncPlan } from './sync-planner.js';
 import { parseZendeskTicketEvent } from './zendesk-event-parser.js';
 import { ZENDESK_FIELD_IDS } from './zendesk-field-ids.js';
 import type { AppConfig } from './types.js';
-import type { JobHandler } from './worker.js';
+import { JOB_TYPES, type JobHandler } from './worker.js';
 
 setFieldIdMap(ZENDESK_FIELD_IDS);
 
@@ -64,8 +65,7 @@ async function handleSyncZendeskToAdo(
     );
   }
 
-  // Single Zendesk API call: update fields + add private note
-  const workItemUrl = `${config.devAzure.orgUrl.replace(/\/$/, '')}/${config.devAzure.project}/_workitems/edit/${result.id}`;
+  const workItemUrl = buildWorkItemUrl(config, result.id);
 
   await updateTicketWithNote(
     config,
@@ -73,9 +73,9 @@ async function handleSyncZendeskToAdo(
     {
       adoWorkItemId: Number(result.id),
       adoWorkItemUrl: workItemUrl,
-      adoStatus: 'ado_status_in_dev_backlog',
+      adoStatus: ADO_STATUS_TAGS.inDevBacklog,
       adoStatusDetail: 'In backlog',
-      adoSyncHealth: 'ado_sync_health_ok',
+      adoSyncHealth: ADO_SYNC_HEALTH_TAGS.ok,
       adoLastSyncAt: new Date().toISOString(),
     },
     `[Synced by integration] Linked to Azure DevOps ${plan.workItemType} #${result.id}\n${workItemUrl}`,
@@ -134,14 +134,15 @@ async function handleSyncAdoStateToZendesk(
   }
 
   const iteration = await fetchIterationMetadata(client, link.ADO_PROJECT, snapshot.iterationPath);
+  const dated = hasDatedRange(iteration);
   const status = deriveAdoStatus({
     workItemState: snapshot.state,
-    hasDatedSprint: Boolean(iteration?.hasDatedRange),
+    hasDatedSprint: dated,
   });
 
-  const sprintName = iteration?.hasDatedRange ? iteration.displayName : null;
-  const sprintStart = iteration?.hasDatedRange ? iteration.startDate : null;
-  const sprintEnd = iteration?.hasDatedRange ? iteration.finishDate : null;
+  const sprintName = dated ? iteration!.displayName : null;
+  const sprintStart = dated ? iteration!.startDate : null;
+  const sprintEnd = dated ? iteration!.finishDate : null;
   const statusDetail = formatStatusDetail({
     status,
     workItemState: snapshot.state,
@@ -171,8 +172,7 @@ async function handleSyncAdoStateToZendesk(
     return;
   }
 
-  const previousStatus = await lookupPreviousStatus(link.LAST_ADO_FINGERPRINT);
-  const privateNote = buildPrivateNote(status, statusDetail, previousStatus, workItemUrl);
+  const privateNote = buildReverseSyncNote(status, statusDetail, workItemUrl);
 
   await updateTicketWithNote(
     config,
@@ -226,39 +226,21 @@ function toZendeskDate(iso: string | null): string | null {
   return d.toISOString().slice(0, 10);
 }
 
-/**
- * Best-effort lookup of the prior status tag so we only post a private note
- * when `ADO Status` meaningfully changes. If we can't recover it (first sync,
- * pre-migration link), we still post — agents expect a change trail.
- */
-async function lookupPreviousStatus(_previousFingerprint: string | null): Promise<AdoStatusTag | null> {
-  // Intentionally simple — we don't persist previous status separately in v1.
-  // Callers treat `null` as "post note regardless". Extracted for clarity and
-  // to make the "only note on transition" upgrade path a one-file change.
-  return null;
-}
+const STATUS_LABELS: Record<AdoStatusTag, string> = {
+  [ADO_STATUS_TAGS.inDevBacklog]: 'In Dev Backlog',
+  [ADO_STATUS_TAGS.scheduledInSprint]: 'Scheduled In Sprint',
+  [ADO_STATUS_TAGS.devInProgress]: 'Dev In Progress',
+  [ADO_STATUS_TAGS.supportReady]: 'Support Ready',
+};
 
-function buildPrivateNote(
-  status: AdoStatusTag,
-  statusDetail: string,
-  previousStatus: AdoStatusTag | null,
-  workItemUrl: string,
-): string | undefined {
-  const marker = '[Synced by integration]';
-  if (previousStatus && previousStatus === status) return undefined;
-  const labelLookup: Record<AdoStatusTag, string> = {
-    [ADO_STATUS_TAGS.inDevBacklog]: 'In Dev Backlog',
-    [ADO_STATUS_TAGS.scheduledInSprint]: 'Scheduled In Sprint',
-    [ADO_STATUS_TAGS.devInProgress]: 'Dev In Progress',
-    [ADO_STATUS_TAGS.supportReady]: 'Support Ready',
-  };
-  return `${marker} ADO status → ${labelLookup[status]}: ${statusDetail}\n${workItemUrl}`;
+function buildReverseSyncNote(status: AdoStatusTag, statusDetail: string, workItemUrl: string): string {
+  return `[Synced by integration] ADO status → ${STATUS_LABELS[status]}: ${statusDetail}\n${workItemUrl}`;
 }
 
 export const jobHandlers: Record<string, JobHandler> = {
-  create_ado_from_zendesk: handleSyncZendeskToAdo,
-  update_ado_from_zendesk: handleSyncZendeskToAdo,
-  sync_ado_state_to_zendesk: handleSyncAdoStateToZendesk,
+  [JOB_TYPES.createAdoFromZendesk]: handleSyncZendeskToAdo,
+  [JOB_TYPES.updateAdoFromZendesk]: handleSyncZendeskToAdo,
+  [JOB_TYPES.syncAdoStateToZendesk]: handleSyncAdoStateToZendesk,
 };
 
 export function dispatchJob(jobType: string, payload: unknown, config: AppConfig): Promise<void> {

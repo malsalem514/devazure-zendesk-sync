@@ -45,10 +45,12 @@ const staleTask = config.dryRun
       await recoverStaleJobs();
     });
 
-// Reconciler: polling safety net for missed ADO webhooks — every 15 minutes
+// Reconciler: polling safety net for missed ADO webhooks — every 15 minutes.
+// Cron offset to mid-bucket (:07, :22, :37, :52) so small clock jitter never
+// straddles the bucket-stamp boundary and enqueues the same reconcile twice.
 const reconcileTask = config.dryRun
   ? null
-  : cron.schedule('*/15 * * * *', async () => {
+  : cron.schedule('7,22,37,52 * * * *', async () => {
       try {
         await reconcileActiveLinks();
       } catch (err) {

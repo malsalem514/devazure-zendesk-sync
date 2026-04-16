@@ -3,11 +3,12 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AppConfig } from './types.js';
 import { parseAdoEvent } from './ado-event-parser.js';
 import { DevAzureClient } from './devazure-client.js';
+import { buildBasicAuthHeaderValue } from './lib/basic-auth.js';
 import { healthCheck as oracleHealthCheck } from './lib/oracle.js';
 import { buildSyncPlan } from './sync-planner.js';
 import { parseZendeskTicketEvent } from './zendesk-event-parser.js';
 import { verifyZendeskSignature } from './zendesk-signature.js';
-import { persistEventAndEnqueueJob } from './worker.js';
+import { JOB_TYPES, persistEventAndEnqueueJob } from './worker.js';
 
 class HttpError extends Error {
   constructor(
@@ -85,11 +86,6 @@ function verifyWebhookRequest(
   }
 }
 
-function buildBasicAuthHeader(username: string, password: string): Buffer {
-  const token = Buffer.from(`${username}:${password}`, 'utf8').toString('base64');
-  return Buffer.from(`Basic ${token}`, 'utf8');
-}
-
 function requireBasicAuth(request: IncomingMessage, expected: Buffer | null): void {
   if (!expected) {
     // Deliberately require explicit configuration — no silent bypass like Zendesk's skip flag.
@@ -108,7 +104,10 @@ export function createWebhookServer(config: AppConfig): Server {
     : null;
   const expectedAdoAuth =
     config.devAzure.webhookUsername && config.devAzure.webhookPassword
-      ? buildBasicAuthHeader(config.devAzure.webhookUsername, config.devAzure.webhookPassword)
+      ? Buffer.from(
+          buildBasicAuthHeaderValue(config.devAzure.webhookUsername, config.devAzure.webhookPassword),
+          'utf8',
+        )
       : null;
 
   return createServer(async (request, response) => {
@@ -168,7 +167,7 @@ export function createWebhookServer(config: AppConfig): Server {
             payload: rawBody,
           },
           {
-            jobType: 'sync_ado_state_to_zendesk',
+            jobType: JOB_TYPES.syncAdoStateToZendesk,
             payload: { workItemId: event.workItemId, revision: event.revision },
           },
         );
@@ -179,7 +178,7 @@ export function createWebhookServer(config: AppConfig): Server {
         }
 
         console.log(
-          `[devazure-zendesk-sync] enqueued sync_ado_state_to_zendesk workItem=${event.workItemId} event=${result.eventId}`,
+          `[devazure-zendesk-sync] enqueued ${JOB_TYPES.syncAdoStateToZendesk} workItem=${event.workItemId} event=${result.eventId}`,
         );
         json(response, 202, {
           ok: true,
@@ -225,7 +224,7 @@ export function createWebhookServer(config: AppConfig): Server {
       // Durable processing: atomically persist event + enqueue job, return 202
       const result = await persistEventAndEnqueueJob(
         { sourceSystem: 'zendesk', eventType: event.type, sourceEventId: event.id, dedupKey, payload: rawBody },
-        { jobType: 'create_ado_from_zendesk', payload: { rawBody, ticketId: event.detail.id } },
+        { jobType: JOB_TYPES.createAdoFromZendesk, payload: { rawBody, ticketId: event.detail.id } },
       );
 
       if (result == null) {
@@ -233,7 +232,7 @@ export function createWebhookServer(config: AppConfig): Server {
         return;
       }
 
-      console.log(`[devazure-zendesk-sync] enqueued create_ado_from_zendesk ticket=${event.detail.id} event=${result.eventId}`);
+      console.log(`[devazure-zendesk-sync] enqueued ${JOB_TYPES.createAdoFromZendesk} ticket=${event.detail.id} event=${result.eventId}`);
       json(response, 202, {
         ok: true,
         action: 'enqueued',

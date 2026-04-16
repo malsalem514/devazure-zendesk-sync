@@ -3,8 +3,10 @@
  * Register ADO service hook subscriptions for work item events.
  *
  * Creates two subscriptions on the target project — `workitem.updated` and
- * `workitem.created` — both POSTing to the integration's `/webhooks/ado`
+ * `workitem.created` — both POSTing to the integration's /webhooks/ado
  * endpoint with Basic auth.
+ *
+ * Usage:   node --env-file-if-exists=.env scripts/register-ado-service-hook.mjs
  *
  * Required env vars:
  *   DEVAZURE_ORG_URL            e.g. https://dev.azure.com/jestaisinc
@@ -17,10 +19,6 @@
  * If service hook creation fails with 403, the integration falls back to the
  * polling reconciler (see src/reconciler.ts). The failure is non-fatal.
  */
-
-import { readFileSync } from 'node:fs';
-
-loadDotenv();
 
 const REQUIRED = [
   'DEVAZURE_ORG_URL',
@@ -114,20 +112,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(2);
 });
-
-function loadDotenv() {
-  try {
-    const raw = readFileSync('.env', 'utf8');
-    for (const line of raw.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eq = trimmed.indexOf('=');
-      if (eq < 0) continue;
-      const key = trimmed.slice(0, eq).trim();
-      const value = trimmed.slice(eq + 1).trim().replace(/^"|"$/g, '');
-      if (!(key in process.env)) process.env[key] = value;
-    }
-  } catch {
-    // .env not present — rely on real env only
-  }
-}
