@@ -1,59 +1,64 @@
 # Client Handoff
 
-This service is meant to be delivered as a standalone integration package.
+This service is delivered as a Docker Compose stack that runs alongside existing stacks at `/srv/stacks/` on the client's Linux Docker host.
 
 ## What to deliver
 
 Preferred:
 
-- The generated `release/devazure-zendesk-sync/` folder from `npm run package:standalone`
+- The branch `claude/amazing-darwin` (or its merged successor on `main`) of this repository, rsynced or `git clone`'d to `/srv/stacks/zendesk-ado-sync/` on the client host
+- A populated `.env` file at `/srv/stacks/zendesk-ado-sync/.env` (0600 perms, admin user) with real credentials for Zendesk, Azure DevOps, and Oracle
 
-Alternative:
+Alternative (air-gapped):
 
-- This entire project folder, excluding any repo-specific files outside it
+- The tarball produced by `npm run package:standalone` (`release/devazure-zendesk-sync/`), plus the `Dockerfile` + `docker-compose.yml` + `.dockerignore` from the repo root
 
 ## Delivery contents
 
-The standalone package includes:
+A working handoff contains:
 
-- `dist/` compiled application files
-- `src/` source files
-- `.env.example`
-- `README.md`
-- `package.json`
+- `Dockerfile` + `docker-compose.yml` + `.dockerignore`
+- `package.json` + `package-lock.json`
+- `src/` (TypeScript sources; compiled inside the Docker build stage)
+- `scripts/` (admin tools: field + form setup, webhook + service-hook registration)
 - `tsconfig.json`
+- `.env.example` (no real credentials)
+- `README.md`, `CLAUDE.md`, `docs/`, `conductor/` (project context)
 
-## Delivery steps
+The generated Docker image is `zendesk-ado-sync:latest`, two-stage `node:24-slim`, ≈250 MB, non-root `node` user, Node-fetch-based `HEALTHCHECK`. No Oracle Instant Client needed — `oracledb` runs in thin mode.
 
-```bash
-npm run package:standalone
-```
+## Delivery steps (client host)
 
-After that, hand off the contents of:
+```sh
+# 1. Sync repo to the stack directory
+sudo mkdir -p /srv/stacks/zendesk-ado-sync
+sudo chown $USER:$USER /srv/stacks/zendesk-ado-sync
+# Either: rsync from dev machine, or: git clone into that path
 
-```text
-release/devazure-zendesk-sync/
-```
-
-## Client run steps
-
-```bash
+# 2. Populate .env (see Environment in README.md for required keys)
 cp .env.example .env
-node dist/index.js
+$EDITOR .env
+chmod 600 .env
+
+# 3. Build + start
+docker compose build
+docker compose up -d
+
+# 4. Verify
+curl -s http://127.0.0.1:8787/healthz     # { "ok": true, "dryRun": <bool> }
+curl -s http://127.0.0.1:8787/readyz      # { "ok": true, "oracle": true }
+docker compose logs --tail 50 zendesk-ado-sync
 ```
 
-If the client wants to rebuild from source:
-
-```bash
-npm install
-npm run build
-npm start
-```
+See [docs/ops/deployment.md](./docs/ops/deployment.md) for the full runbook, Caddy site block, and post-bring-up service-hook registration commands.
 
 ## Pre-delivery checklist
 
-- Replace placeholder secrets in `.env`
-- Confirm webhook endpoint URL and HTTPS termination plan
-- Confirm Zendesk event filters and trigger rules
-- Confirm DevAzure work item type and field mappings
-- Confirm whether dry-run mode should remain enabled for first deployment
+- `.env` populated with real credentials; file is `chmod 600`
+- `SYNC_DRY_RUN` set to `false` only after a first dry-run smoke test
+- Zendesk custom fields created in the tenant (one-shot): `docker compose exec zendesk-ado-sync node scripts/create-zendesk-fields.mjs`
+- Pilot ticket form configured (if needed): `scripts/clone-zendesk-form.mjs --source <id> --name "<name>" --agents-only --attach-ado`
+- Public URL + TLS path decided (Caddy site block for `<host>.jestais.com` uses the existing wildcard cert)
+- Zendesk webhook registered: `scripts/register-zendesk-webhook.mjs` (prints the signing secret — paste into `.env` as `ZENDESK_WEBHOOK_SECRET`, then restart container)
+- ADO service-hook subscriptions registered: `scripts/register-ado-service-hook.mjs` (requires `ADO_WEBHOOK_PUBLIC_URL` + matching `DEVAZURE_WEBHOOK_USERNAME` / `DEVAZURE_WEBHOOK_PASSWORD` in `.env`)
+- First end-to-end test: create a ticket on the pilot form, watch `docker compose logs -f` for the create + writeback + reverse-sync cycle
