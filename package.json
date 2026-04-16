@@ -1,0 +1,32 @@
+{
+  "name": "devazure-zendesk-sync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Starter service for syncing Zendesk ticket events into DevAzure work items",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "dev": "tsc -p tsconfig.json --watch",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "package:standalone": "npm run build && node ./scripts/package-standalone.mjs"
+  },
+  "files": [
+    "dist",
+    "src",
+    "scripts",
+    "README.md",
+    "CLIENT-HANDOFF.md",
+    ".env.example",
+    "tsconfig.json"
+  ],
+  "engines": {
+    "node": ">=24.14.0 <25.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.17",
+    "typescript": "^5.9.3"
+  }
+}

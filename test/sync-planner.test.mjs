@@ -1,0 +1,98 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { buildSyncPlan } from '../dist/sync-planner.js';
+
+const baseConfig = {
+  port: 8787,
+  webhookPath: '/webhooks/zendesk',
+  dryRun: true,
+  zendesk: {
+    webhookSecret: 'secret',
+    baseUrl: 'https://example.zendesk.com',
+    skipSignatureVerification: false,
+  },
+  devAzure: {
+    orgUrl: 'https://dev.azure.com/example',
+    project: 'Support',
+    pat: 'secret',
+    workItemType: 'Bug',
+    apiVersion: '7.1',
+  },
+};
+
+test('buildSyncPlan creates a create plan for a normal ticket event', () => {
+  const event = {
+    id: 'evt-1',
+    type: 'zen:event-type:ticket.comment_added',
+    subject: 'zen:ticket:74184',
+    time: '2025-01-08T07:32:05.554213813Z',
+    zendeskEventVersion: '2022-11-06',
+    detail: {
+      id: '74184',
+      subject: 'Event Log Smoke Ticket',
+      description: 'Initial comment',
+      status: 'OPEN',
+      priority: 'high',
+      type: null,
+      tags: ['integration', 'vip_customer'],
+      updatedAt: '2025-01-08T07:32:05Z',
+      createdAt: '2025-01-08T07:31:03Z',
+      requesterId: '6832979613182',
+      assigneeId: '6832979613182',
+      organizationId: '6832979622654',
+      groupId: '6832953668990',
+      brandId: '6832963029118',
+      viaChannel: 'web_service',
+    },
+    commentId: '8645910207102',
+    commentBody: 'Latest customer-visible comment',
+  };
+
+  const plan = buildSyncPlan(event, baseConfig, null);
+
+  assert.equal(plan.action, 'create');
+  assert.equal(plan.ticketId, '74184');
+  assert.match(plan.title, /Zendesk #74184/);
+  assert.ok(plan.tags.includes('zendesk:id:74184'));
+  assert.ok(
+    plan.operations.some((operation) => operation.path === '/fields/System.Title'),
+  );
+  assert.ok(
+    plan.operations.some((operation) => operation.path === '/relations/-'),
+  );
+});
+
+test('buildSyncPlan returns noop for destructive events', () => {
+  const event = {
+    id: 'evt-2',
+    type: 'zen:event-type:ticket.soft_deleted',
+    subject: 'zen:ticket:75418',
+    time: '2025-01-15T02:50:15.906323869Z',
+    zendeskEventVersion: '2022-11-06',
+    detail: {
+      id: '75418',
+      subject: 'Deleted ticket',
+      description: 'No longer relevant',
+      status: 'DELETED',
+      priority: null,
+      type: null,
+      tags: [],
+      updatedAt: '2025-01-15T02:50:15Z',
+      createdAt: '2025-01-15T02:50:15Z',
+      requesterId: null,
+      assigneeId: null,
+      organizationId: null,
+      groupId: null,
+      brandId: null,
+      viaChannel: 'web_service',
+    },
+    commentId: null,
+    commentBody: null,
+  };
+
+  const plan = buildSyncPlan(event, baseConfig, null);
+
+  assert.equal(plan.action, 'noop');
+  assert.match(plan.reason, /Ignoring destructive Zendesk event/);
+  assert.equal(plan.operations.length, 0);
+});
