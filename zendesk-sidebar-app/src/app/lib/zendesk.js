@@ -66,11 +66,33 @@ function linkedFromBackend(summary) {
 }
 
 export async function loadTicketSnapshot(client) {
-  const [ticketId, formId, subject, requesterName] = await Promise.all([
+  // Read the minimum needed to decide pilot-form gating. We deliberately
+  // avoid reading anything else (including the backend summary) on
+  // non-pilot forms so the app has zero observable footprint outside its
+  // pilot scope.
+  const [ticketId, formId] = await Promise.all([
     getValue(client, 'ticket.id'),
     getValue(client, 'ticket.form.id'),
+  ])
+  const numericTicketId = normalizeNumber(ticketId)
+  const numericFormId = normalizeNumber(formId)
+  const isPilotForm = numericFormId === PILOT_FORM_ID
+
+  if (!isPilotForm) {
+    return {
+      ticketId: numericTicketId,
+      formId: numericFormId,
+      subject: null,
+      requesterName: null,
+      isPilotForm: false,
+      summarySource: 'skipped',
+      linked: null,
+    }
+  }
+
+  const [subject, requesterName] = await Promise.all([
     getValue(client, 'ticket.subject'),
-    getValue(client, 'ticket.requester.name')
+    getValue(client, 'ticket.requester.name'),
   ])
 
   const linkedEntries = await Promise.all(
@@ -79,13 +101,11 @@ export async function loadTicketSnapshot(client) {
   const linkedFields = Object.fromEntries(linkedEntries)
   const fieldLinked = linkedFromFields(linkedFields)
 
-  // Try the backend summary endpoint for authoritative view model.
-  // If it fails (auth not configured, backend down), silently fall back to
-  // the field-based read we already computed. Don't surface this as an error
-  // to the agent — the cached fields are usually good enough.
+  // Try the backend summary endpoint for authoritative view model. Only
+  // called on the pilot form — agents on other forms never generate
+  // backend traffic from this app.
   let backendLinked = null
   let summarySource = 'fields'
-  const numericTicketId = normalizeNumber(ticketId)
   if (numericTicketId) {
     try {
       const summary = await fetchSummary(client, numericTicketId)
@@ -98,15 +118,14 @@ export async function loadTicketSnapshot(client) {
     }
   }
 
-  // Backend wins when it has data; otherwise use whatever the Zendesk fields hold.
   const linked = backendLinked ?? fieldLinked
 
   return {
     ticketId: numericTicketId,
-    formId: normalizeNumber(formId),
+    formId: numericFormId,
     subject: normalizeString(subject),
     requesterName: normalizeString(requesterName),
-    isPilotForm: normalizeNumber(formId) === PILOT_FORM_ID,
+    isPilotForm: true,
     summarySource,
     linked,
   }
