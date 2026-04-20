@@ -129,7 +129,10 @@ export function createWebhookServer(config: AppConfig): Server {
 
       // Parse just enough to get ticket ID and event type for dedup
       const event = parseZendeskTicketEvent(rawBody);
-      const dedupKey = `zendesk:${event.type}:${event.detail.id}:${event.id}`;
+      const invocationId = request.headers['x-zendesk-webhook-invocation-id'];
+      const dedupKey = typeof invocationId === 'string' && invocationId.trim()
+        ? `zendesk:invocation:${invocationId.trim()}`
+        : `zendesk:${event.type}:${event.detail.id}:${event.id}`;
 
       // Dry-run mode: show what would happen without persisting or enqueuing
       if (config.dryRun) {

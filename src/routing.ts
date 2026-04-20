@@ -14,82 +14,82 @@ export interface RouteResult {
 }
 
 const ROUTE_TABLE: Record<string, RouteResult> = {
-  Central_Portal: {
+  central_portal: {
     project: 'VisionSuite',
-    areaPath: '\\VisionSuite\\Area\\Vision Central Portal',
+    areaPath: 'VisionSuite\\Vision Central Portal',
     customProduct: 'Core-Customer Service Portal',
     confidence: 'high',
   },
-  Financials: {
+  financials: {
     project: 'VisionSuite',
-    areaPath: '\\VisionSuite\\Area\\Vision Financials',
+    areaPath: 'VisionSuite\\Vision Financials',
     customProduct: 'Financials',
     confidence: 'high',
   },
-  Merch: {
+  merch: {
     project: 'VisionSuite',
-    areaPath: '\\VisionSuite\\Area\\Vision Merchandising and WMS',
+    areaPath: 'VisionSuite\\Vision Merchandising and WMS',
     customProduct: 'Core-Merchandising',
     confidence: 'high',
   },
-  WMS: {
+  wms: {
     project: 'VisionSuite',
-    areaPath: '\\VisionSuite\\Area\\Vision Merchandising and WMS',
+    areaPath: 'VisionSuite\\Vision Merchandising and WMS',
     customProduct: 'Core-WMS',
     confidence: 'high',
   },
-  SnD: {
+  snd: {
     project: 'VisionSuite',
-    areaPath: '\\VisionSuite\\Area\\Vision SnD',
+    areaPath: 'VisionSuite\\Vision SnD',
     customProduct: null, // requires module-specific refinement
     confidence: 'high',
   },
-  Printing: {
+  printing: {
     project: 'VisionSuite',
-    areaPath: '\\VisionSuite\\Area\\Vision Factory Label Printing',
+    areaPath: 'VisionSuite\\Vision Factory Label Printing',
     customProduct: 'Core-Vision Printing',
     confidence: 'medium',
   },
-  Omni: {
+  omni: {
     project: 'VisionSuite',
-    areaPath: '\\VisionSuite\\Area\\Omni POS Mobile Funnel',
+    areaPath: 'VisionSuite\\Omni POS Mobile Funnel',
     customProduct: 'Core-OMNI',
     confidence: 'medium',
   },
-  Store: {
+  store: {
     project: 'VisionSuite',
-    areaPath: '\\VisionSuite\\Area\\Omni POS Mobile Funnel',
+    areaPath: 'VisionSuite\\Omni POS Mobile Funnel',
     customProduct: 'Core-POS',
     confidence: 'medium',
   },
   // Pending business approval — route with low confidence
-  BI: {
+  bi: {
     project: 'Vision Analytics',
-    areaPath: '\\Vision Analytics\\Area\\Vision Analytics',
+    areaPath: 'Vision Analytics\\Vision Analytics',
     customProduct: null,
     confidence: 'low',
   },
-  Reports: {
+  reports: {
     project: 'Vision Analytics',
-    areaPath: '\\Vision Analytics\\Area\\Vision Analytics',
+    areaPath: 'Vision Analytics\\Vision Analytics',
     customProduct: null,
     confidence: 'low',
   },
-  Ecomm: {
+  ecomm: {
     project: 'VisionSuite',
-    areaPath: '\\VisionSuite\\Area\\Vision Central Portal', // best guess
+    areaPath: 'VisionSuite\\Vision Central Portal', // best guess
     customProduct: null,
     confidence: 'low',
   },
-  Planning: {
+  planning: {
     project: 'VisionSuite',
-    areaPath: '\\VisionSuite\\Area\\Vision Central Portal', // unresolved
+    areaPath: 'VisionSuite\\Vision Central Portal', // unresolved
     customProduct: null,
     confidence: 'low',
   },
-  'Planning.net': {
+  'planning.net': {
     project: 'VisionSuite',
-    areaPath: '\\VisionSuite\\Area\\Vision Central Portal', // unresolved
+    areaPath: 'VisionSuite\\Vision Central Portal', // unresolved
     customProduct: null,
     confidence: 'low',
   },
@@ -97,7 +97,7 @@ const ROUTE_TABLE: Record<string, RouteResult> = {
 
 const DEFAULT_ROUTE: RouteResult = {
   project: 'VisionSuite',
-  areaPath: '\\VisionSuite\\Area\\Vision Central Portal',
+  areaPath: 'VisionSuite\\Vision Central Portal',
   customProduct: null,
   confidence: 'low',
 };
@@ -109,7 +109,7 @@ const DEFAULT_ROUTE: RouteResult = {
 export function resolveRoute(productFamily: string | null | undefined): RouteResult {
   if (!productFamily) return DEFAULT_ROUTE;
 
-  const key = productFamily.trim();
+  const key = productFamily.trim().toLowerCase();
   const entry = ROUTE_TABLE[key];
   if (entry) return entry;
 

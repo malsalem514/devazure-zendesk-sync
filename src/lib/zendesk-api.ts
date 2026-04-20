@@ -3,6 +3,7 @@ const { createClient } = nodeZendesk;
 import type { AppConfig } from '../types.js';
 
 export interface ZendeskFieldMapping {
+  devFunnelNumber?: string | null;
   adoWorkItemId?: number | null;
   adoWorkItemUrl?: string | null;
   adoStatus?: string | null;
@@ -71,6 +72,7 @@ export async function updateTicketWithNote(
   const customFields: Array<{ id: number; value: string | number | boolean | null }> = [];
 
   const mapping: Array<[keyof ZendeskFieldMapping, string]> = [
+    ['devFunnelNumber', 'dev_funnel_number'],
     ['adoWorkItemId', 'ado_work_item_id'],
     ['adoWorkItemUrl', 'ado_work_item_url'],
     ['adoStatus', 'ado_status'],

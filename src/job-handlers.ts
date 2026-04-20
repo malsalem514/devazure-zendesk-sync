@@ -62,6 +62,7 @@ async function handleSyncZendeskToAdo(
     config,
     ticketId,
     {
+      devFunnelNumber: workItemUrl,
       adoWorkItemId: Number(result.id),
       adoWorkItemUrl: workItemUrl,
       adoStatus: 'ado_status_in_dev_backlog',

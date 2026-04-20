@@ -3,6 +3,7 @@
  * Created in jestaissupport.zendesk.com on 2026-04-16.
  */
 export const ZENDESK_FIELD_IDS: Record<string, number> = {
+  dev_funnel_number: 50847215571859,
   ado_work_item_id: 50877199973651,
   ado_work_item_url: 50877235285395,
   ado_status: 50877228156563,
