@@ -44,6 +44,28 @@ function getClient(config: AppConfig) {
   return cachedClient;
 }
 
+export interface ZendeskTicketSnapshot {
+  id: number;
+  subject: string | null;
+  customFields: Record<number, unknown>;
+}
+
+export async function getTicket(config: AppConfig, ticketId: number | string): Promise<ZendeskTicketSnapshot | null> {
+  try {
+    const result = (await getClient(config).tickets.show(Number(ticketId))) as any;
+    const ticket = result?.ticket ?? result;
+    if (!ticket || typeof ticket !== 'object') return null;
+    const customFields: Record<number, unknown> = {};
+    for (const f of (ticket.custom_fields ?? []) as Array<{ id: number; value: unknown }>) {
+      customFields[f.id] = f.value;
+    }
+    return { id: Number(ticket.id), subject: ticket.subject ?? null, customFields };
+  } catch (err: any) {
+    if (err?.statusCode === 404 || err?.result?.statusCode === 404) return null;
+    throw err;
+  }
+}
+
 export async function createTicketField(
   config: AppConfig,
   field: { title: string; type: string; tag?: string; custom_field_options?: Array<{ name: string; value: string }> },

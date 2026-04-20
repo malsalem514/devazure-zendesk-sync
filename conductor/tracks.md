@@ -4,7 +4,7 @@
 
 | ID | Title | Status | Priority | Notes |
 | --- | --- | --- | --- | --- |
-| APP-005 | Zendesk sidebar app package + app endpoints | in_progress | high | Scaffold package exists at `zendesk-sidebar-app/` (React + Vite + Garden), builds cleanly, reads linked fields, self-hides outside pilot form. Next work: backend `/app/ado/tickets/:id/{summary,create,link}` endpoints, ZAF JWT auth, tenant install. |
+| APP-005 | Zendesk sidebar app package + app endpoints | in_progress | high | Scaffold exists at `zendesk-sidebar-app/`. Backend: `GET /app/ado/tickets/:id/summary` landed with ZAF JWT auth (`ZENDESK_APP_SHARED_SECRET`). Next: wire scaffold to the summary endpoint, then build `POST .../create` and `POST .../link`, then install as private app in live tenant. |
 | OPS-002 | Public URL + Caddy go-live | blocked (IT) | high | Waiting on DNS record for `zendesk-sync.jestais.com` + TCP 443 port-forward from jestais firewall/NAT to `172.16.20.97`. Caddy site block staged at `/tmp/caddy-zendesk-sync.snippet` on host, hook-registration scripts ready. |
 | APP-004 | Comment and attachment sync policy (Phase 6) | planned | medium | Private-note-first comment sync with integration marker, link-existing workflow (paste ADO URL), relink audit trail |
 | HARDEN-001 | Observability and replay protection | planned | medium | `POST /internal/reconcile`, `GET /internal/failed-jobs`, log rotation, structured logs, kill-switch flag |
@@ -30,6 +30,8 @@
 | PILOT-E2E-1 | First live round-trip: Zendesk #39045 → ADO Bug #79741 with Oracle link + audit + field writeback confirmed | 2026-04-17 |
 | MERGE-001 | Unify `claude/amazing-darwin` worktree into `main`: Phase 4/5 code, CLOB fix, admin scripts + pilot hotfixes + sidebar-app scaffold now on a single linear branch | 2026-04-20 |
 | OPS-DEPLOY-2 | Live deploy of unified `main` to `ubuntu-docker-host`: image rebuilt, container healthy, `dryRun=false`, first live reverse-sync job (`sync_ado_state_to_zendesk` #601) completed in 11 s with zero retries | 2026-04-20 |
+| APP-005a | Backend summary endpoint for sidebar app: `GET /app/ado/tickets/:id/summary`, ZAF JWT verifier (`src/lib/zaf-auth.ts`), view-model assembler, 15 unit tests | 2026-04-20 |
+| CLEAN-001 | Purged 282 DEAD `sync_ado_state_to_zendesk` rows accumulated from the pre-deploy handler gap (kept 1 real DEAD `create_ado_from_zendesk` for audit) | 2026-04-20 |
 
 ## Current Implementation Gap
 

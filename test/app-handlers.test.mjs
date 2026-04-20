@@ -1,0 +1,92 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { buildSummaryFromSnapshot } from '../dist/app-handlers.js';
+
+const ORG_URL = 'https://dev.azure.com/jestaisinc';
+
+test('buildSummaryFromSnapshot: returns linked=false when no link row', () => {
+  const result = buildSummaryFromSnapshot(12345, null, null, ORG_URL);
+  assert.deepEqual(result, { ok: true, ticketId: 12345, linked: false });
+});
+
+test('buildSummaryFromSnapshot: assembles view model from link + Zendesk fields', () => {
+  const link = {
+    ADO_ORG: 'jestaisinc',
+    ADO_PROJECT: 'VisionSuite',
+    ADO_WORK_ITEM_ID: 79741,
+    LAST_SYNCED_AT: new Date('2026-04-20T15:22:11.000Z'),
+    LAST_SYNC_SOURCE: 'ado',
+  };
+  const snapshot = {
+    id: 39045,
+    subject: 'Test',
+    customFields: {
+      50877235285395: 'https://dev.azure.com/jestaisinc/VisionSuite/_workitems/edit/79741',
+      50877228156563: 'ado_status_in_dev_backlog',
+      50877235562259: 'In backlog',
+      50877208001043: 'Sprint 42',
+      50877235803539: '2026-05-01T00:00:00.000Z',
+      50877218501395: 'ado_sync_health_ok',
+      50877208248211: '2026-04-20T15:22:11.000Z',
+    },
+  };
+
+  const result = buildSummaryFromSnapshot(39045, link, snapshot, ORG_URL);
+  assert.equal(result.ok, true);
+  assert.equal(result.linked, true);
+  assert.equal(result.workItem?.id, 79741);
+  assert.equal(result.workItem?.url, 'https://dev.azure.com/jestaisinc/VisionSuite/_workitems/edit/79741');
+  assert.equal(result.workItem?.status, 'In backlog');
+  assert.equal(result.workItem?.statusDetail, 'In backlog');
+  assert.equal(result.workItem?.sprint, 'Sprint 42');
+  assert.equal(result.workItem?.eta, '2026-05-01T00:00:00.000Z');
+  assert.equal(result.workItem?.syncHealth, 'ado_sync_health_ok');
+  assert.equal(result.workItem?.lastSyncAt, '2026-04-20T15:22:11.000Z');
+});
+
+test('buildSummaryFromSnapshot: synthesizes URL when Zendesk has no URL field', () => {
+  const link = {
+    ADO_ORG: 'jestaisinc',
+    ADO_PROJECT: 'Vision Analytics',
+    ADO_WORK_ITEM_ID: 42,
+    LAST_SYNCED_AT: null,
+    LAST_SYNC_SOURCE: null,
+  };
+  const result = buildSummaryFromSnapshot(1, link, null, ORG_URL);
+  assert.equal(result.workItem?.url, 'https://dev.azure.com/jestaisinc/Vision%20Analytics/_workitems/edit/42');
+});
+
+test('buildSummaryFromSnapshot: falls back to link.LAST_SYNCED_AT when field is empty', () => {
+  const link = {
+    ADO_ORG: 'jestaisinc',
+    ADO_PROJECT: 'VisionSuite',
+    ADO_WORK_ITEM_ID: 1,
+    LAST_SYNCED_AT: new Date('2026-04-20T10:00:00.000Z'),
+    LAST_SYNC_SOURCE: 'zendesk',
+  };
+  const snapshot = { id: 1, subject: null, customFields: {} };
+  const result = buildSummaryFromSnapshot(1, link, snapshot, ORG_URL);
+  assert.equal(result.workItem?.lastSyncAt, '2026-04-20T10:00:00.000Z');
+});
+
+test('buildSummaryFromSnapshot: tolerates trims empty/whitespace field values to null', () => {
+  const link = {
+    ADO_ORG: 'jestaisinc',
+    ADO_PROJECT: 'VisionSuite',
+    ADO_WORK_ITEM_ID: 1,
+    LAST_SYNCED_AT: null,
+    LAST_SYNC_SOURCE: null,
+  };
+  const snapshot = {
+    id: 1, subject: null,
+    customFields: {
+      50877228156563: '',
+      50877235562259: '   ',
+      50877208001043: null,
+    },
+  };
+  const result = buildSummaryFromSnapshot(1, link, snapshot, ORG_URL);
+  assert.equal(result.workItem?.status, null);
+  assert.equal(result.workItem?.statusDetail, null);
+  assert.equal(result.workItem?.sprint, null);
+});

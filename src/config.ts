@@ -49,6 +49,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       skipSignatureVerification,
       apiUsername: env['ZENDESK_API_USERNAME']?.trim() || undefined,
       apiToken: env['ZENDESK_API_TOKEN']?.trim() || undefined,
+      appSharedSecret: env['ZENDESK_APP_SHARED_SECRET']?.trim() || undefined,
     },
     devAzure: {
       orgUrl: requireEnv('DEVAZURE_ORG_URL', env),

@@ -9,6 +9,7 @@ export interface AppConfig {
     skipSignatureVerification: boolean;
     apiUsername?: string;
     apiToken?: string;
+    appSharedSecret?: string;
   };
   devAzure: {
     orgUrl: string;

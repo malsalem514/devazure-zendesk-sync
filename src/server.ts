@@ -2,9 +2,11 @@ import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AppConfig } from './types.js';
 import { parseAdoEvent } from './ado-event-parser.js';
+import { getTicketSummary } from './app-handlers.js';
 import { DevAzureClient } from './devazure-client.js';
 import { buildBasicAuthHeaderValue } from './lib/basic-auth.js';
 import { healthCheck as oracleHealthCheck } from './lib/oracle.js';
+import { verifyAuthorizationHeader, ZafAuthError } from './lib/zaf-auth.js';
 import { buildSyncPlan } from './sync-planner.js';
 import { parseZendeskTicketEvent } from './zendesk-event-parser.js';
 import { verifyZendeskSignature } from './zendesk-signature.js';
@@ -132,6 +134,30 @@ export function createWebhookServer(config: AppConfig): Server {
         const oracleOk = await oracleHealthCheck();
         const status = oracleOk ? 200 : 503;
         json(response, status, { ok: oracleOk, oracle: oracleOk });
+        return;
+      }
+
+      // Sidebar app summary endpoint: GET /app/ado/tickets/:ticketId/summary
+      const appSummaryMatch = path.match(/^\/app\/ado\/tickets\/([^/]+)\/summary$/);
+      if (request.method === 'GET' && appSummaryMatch) {
+        const secret = config.zendesk.appSharedSecret;
+        if (!secret) {
+          throw new HttpError('ZAF shared secret not configured', 500);
+        }
+        try {
+          verifyAuthorizationHeader(
+            typeof request.headers.authorization === 'string' ? request.headers.authorization : undefined,
+            secret,
+            config.zendesk.baseUrl ? { expectedIssuer: config.zendesk.baseUrl } : undefined,
+          );
+        } catch (err) {
+          if (err instanceof ZafAuthError) {
+            throw new HttpError(err.message, err.statusCode);
+          }
+          throw err;
+        }
+        const summary = await getTicketSummary(config, appSummaryMatch[1]);
+        json(response, 200, summary);
         return;
       }
 
