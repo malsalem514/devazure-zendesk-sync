@@ -33,6 +33,7 @@
 | APP-005a | Backend summary endpoint for sidebar app: `GET /app/ado/tickets/:id/summary`, ZAF JWT verifier (`src/lib/zaf-auth.ts`), view-model assembler, 15 unit tests | 2026-04-20 |
 | APP-005b | Backend create + link endpoints: `POST /app/ado/tickets/:id/create` (immediate, idempotent via `SYNC_LINK`) and `POST .../link` (numeric ID or ADO URL, adds `zendesk:id` tag, writes current ADO state). Sidebar scaffold wired to all three endpoints with direct-field fallback. 45 unit tests. Smoke-tested live against ticket #39045 → ADO #79741. | 2026-04-20 |
 | APP-005c | Sidebar app installed in `jestaissupport.zendesk.com` (app_id `1240317`, installation `50988210128019`, product `support`, enabled). Settings: `backendBaseUrl` → current Cloudflare quick tunnel URL, `appSharedSecret` → stored encrypted in Zendesk secure settings. | 2026-04-20 |
+| OPS-003 | Tunnel guardian: `scripts/tunnel-guardian.sh` runs every 5 min via host crontab, diffs the live cloudflared URL against the Zendesk installation's `backendBaseUrl`, PUTs a partial-settings update when drift detected. Fault-injection test confirmed self-heal and `appSharedSecret` survives the write. Logs to `/srv/stacks/zendesk-ado-sync/tunnel-guardian.log`. | 2026-04-20 |
 | CLEAN-001 | Purged 282 DEAD `sync_ado_state_to_zendesk` rows accumulated from the pre-deploy handler gap (kept 1 real DEAD `create_ado_from_zendesk` for audit) | 2026-04-20 |
 
 ## Current Implementation Gap
