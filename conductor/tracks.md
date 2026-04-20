@@ -28,10 +28,14 @@
 | ZD-FORM-1 | Pilot sandbox form: `Musa ADO Form Testing` (ID `50882600373907`) cloned from Support, agents-only, 10 ADO fields attached | 2026-04-16 |
 | HOTFIX-001 | Live pilot hotfixes: ADO area paths (lowercase keys, corrected tree names), `x-zendesk-webhook-invocation-id` dedup, `Dev Funnel #` writeback | 2026-04-17 |
 | PILOT-E2E-1 | First live round-trip: Zendesk #39045 → ADO Bug #79741 with Oracle link + audit + field writeback confirmed | 2026-04-17 |
+| MERGE-001 | Unify `claude/amazing-darwin` worktree into `main`: Phase 4/5 code, CLOB fix, admin scripts + pilot hotfixes + sidebar-app scaffold now on a single linear branch | 2026-04-20 |
+| OPS-DEPLOY-2 | Live deploy of unified `main` to `ubuntu-docker-host`: image rebuilt, container healthy, `dryRun=false`, first live reverse-sync job (`sync_ado_state_to_zendesk` #601) completed in 11 s with zero retries | 2026-04-20 |
 
 ## Current Implementation Gap
 
-All Phase 1–5 code is implemented, deployed to `ubuntu-docker-host`, and validated end-to-end (Zendesk #39045 → ADO Bug #79741 on 2026-04-17). The stack runs in `SYNC_DRY_RUN=false` with Oracle pool + schema + worker + reconciler all live.
+All Phase 1–5 code is implemented, deployed to `ubuntu-docker-host`, and validated end-to-end. Zendesk → ADO round-trip confirmed on 2026-04-17 (Zendesk #39045 → ADO Bug #79741). ADO → Zendesk reverse sync confirmed on 2026-04-20 (reconciler job #601 cleared in 11 s, zero retries). The stack runs in `SYNC_DRY_RUN=false` with Oracle pool + schema + worker + reconciler all live, and `main` is on `origin`.
+
+Before 2026-04-20 the live host was running a mid-branch snapshot that enqueued reverse-sync jobs without a registered handler, so 278 jobs had accumulated in `STATUS='DEAD'` with "Unknown job type: sync_ado_state_to_zendesk". Those rows are kept as historical audit; after `OPS-DEPLOY-2` the new enqueues succeed.
 
 The **v1 UX direction pivoted** to a private Zendesk sidebar app (`APP-005`) rather than always-visible ADO fields on support forms — one rollout, better agent experience, no double training. The scaffold package already exists; the next work is backend endpoints and a tenant install.
 

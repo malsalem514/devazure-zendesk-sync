@@ -178,4 +178,5 @@ Safety toggles: `SYNC_DRY_RUN=true` disables worker + reconciler crons (returns 
 - **Oracle:** `SUPPOPS` DB on `srv-db-100` (172.16.25.63), schema `AUTOMATION`
 - **Deploy target:** `ubuntu-docker-host` (172.16.20.97), Ubuntu 24.04, Docker + Caddy + Watchtower, stacks at `/srv/stacks/`
 - **Sandbox Zendesk form for pilot testing:** `Musa ADO Form Testing` (ID `50882600373907`, agents-only, 10 ADO fields attached)
-- **First live round-trip:** Zendesk #39045 → ADO Bug #79741 (2026-04-17)
+- **First live Zendesk → ADO round-trip:** Zendesk #39045 → ADO Bug #79741 (2026-04-17)
+- **First live ADO → Zendesk reverse-sync round-trip:** reconciler job `#601` cleared in 11 s with zero retries (2026-04-20)
