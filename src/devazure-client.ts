@@ -1,4 +1,12 @@
+import { buildBasicAuthHeaderValue } from './lib/basic-auth.js';
 import type { AppConfig, DevAzureWorkItemReference, ExistingWorkItem, JsonPatchOperation } from './types.js';
+import type { IterationMetadata } from './ado-status.js';
+
+export class DevAzureHttpError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+  }
+}
 
 interface WiqlResponse {
   workItems?: Array<{
@@ -11,6 +19,29 @@ interface WorkItemResponse {
   id: number;
   rev: number;
   url: string;
+  fields?: Record<string, unknown>;
+}
+
+interface ClassificationNodeResponse {
+  id: number;
+  name: string;
+  path?: string;
+  attributes?: {
+    startDate?: string;
+    finishDate?: string;
+  };
+}
+
+export interface AdoWorkItemSnapshot {
+  id: string;
+  rev: number;
+  url: string;
+  state: string | null;
+  iterationPath: string | null;
+  title: string | null;
+  assignedTo: string | null;
+  tags: string[];
+  fields: Record<string, unknown>;
 }
 
 export class DevAzureClient {
@@ -19,7 +50,7 @@ export class DevAzureClient {
   private readonly apiVersion: string;
 
   constructor(private readonly config: AppConfig['devAzure']) {
-    this.authHeader = `Basic ${Buffer.from(`:${config.pat}`).toString('base64')}`;
+    this.authHeader = buildBasicAuthHeaderValue('', config.pat);
     this.baseUrl = `${config.orgUrl.replace(/\/$/, '')}/${config.project}/_apis`;
     this.apiVersion = config.apiVersion;
   }
@@ -55,7 +86,10 @@ export class DevAzureClient {
 
     if (!response.ok) {
       const payload = await response.text();
-      throw new Error(`DevAzure ${method} ${path} failed with ${response.status}: ${payload}`);
+      throw new DevAzureHttpError(
+        response.status,
+        `DevAzure ${method} ${path} failed with ${response.status}: ${payload}`,
+      );
     }
 
     return response.json() as Promise<T>;
@@ -114,4 +148,93 @@ export class DevAzureClient {
 
     return this.toRef(response);
   }
+
+  /**
+   * Fetch a full work item snapshot — used by the reverse-sync handler to
+   * derive `ADO Status`, sprint context, and the fingerprint for no-op skip.
+   */
+  async getWorkItem(workItemId: string | number): Promise<AdoWorkItemSnapshot | null> {
+    if (!/^\d+$/.test(String(workItemId))) {
+      throw new Error(`Invalid ADO work item ID: ${workItemId}`);
+    }
+    // Fetch only the fields the reverse-sync handler actually reads — ADO
+    // work items carry dozens of custom fields we'd otherwise download+parse.
+    const fieldList = [
+      'System.State',
+      'System.IterationPath',
+      'System.Title',
+      'System.AssignedTo',
+      'System.Tags',
+    ].join(',');
+    try {
+      const response = await this.request<WorkItemResponse>(
+        'GET',
+        `/wit/workitems/${workItemId}?fields=${fieldList}`,
+      );
+      const fields = response.fields ?? {};
+      const rawTags = (fields['System.Tags'] as string | undefined) ?? '';
+      return {
+        id: String(response.id),
+        rev: response.rev,
+        url: response.url,
+        state: (fields['System.State'] as string | undefined) ?? null,
+        iterationPath: (fields['System.IterationPath'] as string | undefined) ?? null,
+        title: (fields['System.Title'] as string | undefined) ?? null,
+        assignedTo: extractDisplayName(fields['System.AssignedTo']),
+        tags: rawTags
+          .split(';')
+          .map((t) => t.trim())
+          .filter((t) => t.length > 0),
+        fields,
+      };
+    } catch (err) {
+      if (err instanceof DevAzureHttpError && err.status === 404) return null;
+      throw err;
+    }
+  }
+
+  /**
+   * Fetch iteration metadata (display name + dated range) via the ADO
+   * classification nodes API. Returns `null` on 404 so callers can skip the
+   * cache write and fall through to "no sprint" rendering.
+   */
+  async getIteration(iterationPath: string): Promise<IterationMetadata | null> {
+    const projectPrefix = `${this.config.project}\\`;
+    const relative = iterationPath.startsWith(projectPrefix)
+      ? iterationPath.slice(projectPrefix.length)
+      : iterationPath;
+
+    const encoded = relative
+      .split('\\')
+      .filter((segment) => segment.length > 0)
+      .map(encodeURIComponent)
+      .join('/');
+
+    if (!encoded) return null;
+
+    try {
+      const response = await this.request<ClassificationNodeResponse>(
+        'GET',
+        `/wit/classificationnodes/Iterations/${encoded}?$depth=0`,
+      );
+      return {
+        displayName: response.name,
+        startDate: response.attributes?.startDate ?? null,
+        finishDate: response.attributes?.finishDate ?? null,
+      };
+    } catch (err) {
+      if (err instanceof DevAzureHttpError && err.status === 404) return null;
+      throw err;
+    }
+  }
+}
+
+function extractDisplayName(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object' && 'displayName' in value) {
+    const name = (value as { displayName?: unknown }).displayName;
+    return typeof name === 'string' ? name : null;
+  }
+  return null;
 }

@@ -19,6 +19,9 @@ export interface AppConfig {
     iterationPath?: string;
     assignedTo?: string;
     apiVersion: string;
+    webhookPath: string;
+    webhookUsername?: string;
+    webhookPassword?: string;
   };
   oracle: {
     user: string;

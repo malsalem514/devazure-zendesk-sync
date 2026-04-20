@@ -6,63 +6,124 @@
 | --- | --- | --- |
 | Node.js | `>=24.14.0 <25.0.0` | Runtime for the standalone integration service |
 | TypeScript | `^5.9.3` | Service implementation and type safety |
-| Node built-ins | current runtime pattern | HTTP server, crypto, fetch, and test support without framework lock-in |
-| React | `^18.2.0` in `zendesk-sidebar-app/` | Private Zendesk sidebar app UI |
-| Vite | `^6.x` in `zendesk-sidebar-app/` | Build tool for the Zendesk sidebar app package |
-| Zendesk Garden | `^8.x` packages in `zendesk-sidebar-app/` | Native-feeling app UI components for Agent Workspace |
+| Node built-ins | `node:http`, `node:crypto`, `fetch`, `node:test` | HTTP server, HMAC verification, outbound HTTP, and test runner without framework lock-in |
+
+## Runtime Dependencies
+
+| Package | Version | Purpose |
+| --- | --- | --- |
+| `oracledb` | `^6.10.0` | Oracle connection pool + queries, thin mode (no Instant Client). `fetchAsString = [CLOB]` set at pool init so `SYNC_JOB.PAYLOAD` deserializes as string |
+| `node-zendesk` | `^6.0.1` | Zendesk API client for custom field CRUD, ticket updates, private notes, webhook management |
+| `node-cron` | `^3.0.3` | Scheduling: worker poll (10s), stale-job recovery (5m), reconciler (every 15m at `:07 :22 :37 :52`) |
+
+## Dev Dependencies
+
+| Package | Version | Purpose |
+| --- | --- | --- |
+| `azure-devops-node-api` | `^15.1.2` | TypeScript type imports only (`import type`) for work items, WIQL, iterations. SDK's HTTP layer is not used |
+| `typescript` | `^5.9.3` | Build-time TS compilation |
+| `@types/node` | `^20.11.17` | Node stdlib types |
 
 ## Current Codebase Shape
 
-| Area | Current State | Notes |
-| --- | --- | --- |
-| `src/server.ts` | implemented | Raw HTTP webhook server and request handling |
-| `src/zendesk-signature.ts` | implemented | Zendesk HMAC verification |
-| `src/zendesk-event-parser.ts` | implemented | Ticket event normalization for the starter flow |
-| `src/sync-planner.ts` | implemented | Starter create/update planning and field mapping |
-| `src/devazure-client.ts` | implemented | Azure DevOps work item lookup and JSON Patch operations |
-| `test/*.test.mjs` | implemented | Node built-in tests for signature logic and sync planning |
-| `zendesk-sidebar-app/` | scaffold started | Private Zendesk sidebar app package based on the official React scaffold pattern |
+### HTTP server + webhooks
 
-## Target Runtime Dependencies
+| File | Purpose |
+| --- | --- |
+| `src/index.ts` | Boot: load config, create Oracle pool, initialize schema, start HTTP server, start cron tasks, wire SIGTERM/SIGINT |
+| `src/server.ts` | Raw HTTP: `/health`, `/healthz`, `/readyz`, `POST /webhooks/zendesk` (HMAC), `POST /webhooks/ado` (Basic auth) |
+| `src/config.ts` | Env var loading + validation |
+| `src/types.ts` | `AppConfig` + shared data shapes |
 
-| Package | Version | Purpose | Decision Basis |
-| --- | --- | --- | --- |
-| `oracledb` | `^6.10.0` | Oracle connection pool, queries, thin mode (no Instant Client needed) | Proven in myreports project; thin mode confirmed working with `AUTOMATION@srv-db-100/SUPPOPS` |
-| `node-zendesk` | `^6.0.1` | Zendesk API client: ticket fields, comments, webhooks, triggers | 65K+/week downloads, recommended by Zendesk docs, only maintained Node.js client |
-| `node-cron` | `^3.x` | Schedule worker polling and reconciliation runs | Lightweight, 1.1M/week downloads, no external deps |
+### Inbound parsers + signature
 
-## Target Dev Dependencies
+| File | Purpose |
+| --- | --- |
+| `src/zendesk-signature.ts` | HMAC-SHA256 verification over `timestamp + body` |
+| `src/zendesk-event-parser.ts` | Parse `zen:event-type:ticket.*` payloads |
+| `src/ado-event-parser.ts` | Parse ADO service-hook payloads (`workitem.created`, `workitem.updated`) |
 
-| Package | Version | Purpose | Decision Basis |
-| --- | --- | --- | --- |
-| `azure-devops-node-api` | `^15.1.2` | TypeScript type imports only (`import type`) for work items, WIQL, iterations | Microsoft official; types strengthen our fetch layer without adding a new HTTP dep |
+### Outbound clients
 
-## Target Runtime Additions
+| File | Purpose |
+| --- | --- |
+| `src/devazure-client.ts` | ADO REST: WIQL lookup, create / update work items, `getWorkItem`, `getIteration`; typed `DevAzureHttpError` |
+| `src/lib/zendesk-api.ts` | Zendesk client wrapper: `updateTicketWithNote` (fields + private note in one call), ticket field / form CRUD |
+| `src/lib/basic-auth.ts` | Shared `buildBasicAuthHeaderValue` used by the ADO client and webhook receiver |
 
-| Component | Intended Choice | Notes |
-| --- | --- | --- |
-| Primary datastore | Oracle (`SUPPOPS`, `AUTOMATION` schema) | Durable sync ledger, links, retries, audit, and worker tables |
-| Oracle driver | `oracledb` v6.10 thin mode | Copy pool + query pattern from `myreports/lib/oracle.ts`; connect string `srv-db-100/SUPPOPS` |
-| Queue / worker model | Oracle-backed worker tables with `SELECT FOR UPDATE SKIP LOCKED` | Oracle 19c supports SKIP LOCKED natively; modeled after yoomoney/db-queue |
-| Zendesk API client | `node-zendesk` v6 | Covers ticket field CRUD, private notes, webhook/trigger management |
-| ADO API client | Hand-rolled fetch + Basic auth (PAT), typed with `azure-devops-node-api` interfaces | SDK's HTTP layer (`typed-rest-client`) adds unnecessary complexity; service hooks not in SDK |
-| Scheduler | `node-cron` | Triggers worker polling (every N seconds) and reconciliation (every 15 min) |
-| Bidirectional sync pattern | Truto.one 5-pillar pattern | Origin tagging, fingerprint comparison, sync journal, dedup key, field ownership |
-| Loop prevention | Origin stamp + fingerprint hash + integration marker in comments | Comment bodies stamped with `[Synced from {system} by integration]` |
-| Deployment | Docker on client Linux host | Separate stack under `/srv/stacks/<integration-name>` |
-| Reverse proxy | Host-level Caddy | Follow current live-host pattern |
-| Temporary pilot ingress | Cloudflare Quick Tunnel -> `127.0.0.1:8787` | Stopgap for Zendesk webhook reachability without waiting on IT; ephemeral URL, not production-grade |
-| Upstream systems | Zendesk + Azure DevOps | Standalone client-owned integration boundary |
+### Sync pipeline
+
+| File | Purpose |
+| --- | --- |
+| `src/sync-planner.ts` | Build JSON Patch operations + required ADO fields from a ticket event |
+| `src/routing.ts` | V1 routing matrix: 13 product families → project + area path + `Custom.Product` |
+| `src/job-handlers.ts` | `handleSyncZendeskToAdo` (create / update) + `handleSyncAdoStateToZendesk` (reverse) |
+| `src/ado-status.ts` | Status derivation, status-detail templates, iteration metadata cache, SHA-256 fingerprint |
+| `src/worker.ts` | Durable worker: `SELECT FOR UPDATE SKIP LOCKED`, retries, stale recovery; exports `JOB_TYPES` |
+| `src/reconciler.ts` | 15-min cron polling safety net for missed ADO service-hook events |
+
+### Persistence
+
+| File | Purpose |
+| --- | --- |
+| `src/lib/oracle.ts` | Pool singleton, `query` / `execute` / `executeMany`, `healthCheck`, `closePool`, `safeExecuteDDL` |
+| `src/schema.ts` | Idempotent DDL: `SYNC_LINK`, `SYNC_EVENT`, `SYNC_JOB`, `SYNC_ATTEMPT`, `AUDIT_LOG`, `ITERATION_CACHE` |
+| `src/zendesk-field-ids.ts` | Tenant-specific field ID map (Jestais) |
+| `src/types/oracledb.d.ts` | Ambient type declarations for the subset of `oracledb` we use |
+
+### Tests (Node's built-in runner)
+
+| File | Coverage |
+| --- | --- |
+| `test/zendesk-signature.test.mjs` | HMAC verification happy + failure paths |
+| `test/sync-planner.test.mjs` | Create plan shape, destructive-event noop |
+| `test/ado-status.test.mjs` | Status derivation, detail templates, fingerprint stability |
+| `test/ado-event-parser.test.mjs` | ADO payload parsing + shape validation |
+
+### Admin scripts (`scripts/`)
+
+| Script | Purpose |
+| --- | --- |
+| `create-zendesk-fields.mjs` | Create the 10 ADO fields in the Zendesk tenant (idempotent) |
+| `clone-zendesk-form.mjs` | Clone an existing form + attach ADO fields, agents-only option |
+| `detach-zendesk-fields.mjs` / `find-zendesk-form-attachments.mjs` | Audit + remove ADO fields from forms |
+| `register-zendesk-webhook.mjs` | Create (or re-use) the Zendesk → us webhook; fetch signing secret |
+| `register-ado-service-hook.mjs` | Register ADO `workitem.updated` + `workitem.created` service-hook subscriptions |
+| `lib/zendesk.mjs` | Shared client bootstrap + `V1_FIELDS` + `unwrapTicketForm` |
+
+### Deployment
+
+| File | Purpose |
+| --- | --- |
+| `Dockerfile` | Two-stage node:24-slim build, non-root, Node-fetch HEALTHCHECK |
+| `docker-compose.yml` | Loopback bind `127.0.0.1:8787`, `extra_hosts` for `srv-db-100`, Watchtower label |
+| `.dockerignore` | Excludes node_modules, dist, .claude, .env, tests, docs |
+| `docs/ops/deployment.md` | Bring-up runbook, Caddy site block, service-hook registration commands |
+
+## Runtime Pattern
+
+| Concern | How |
+| --- | --- |
+| Primary datastore | Oracle (`SUPPOPS`, `AUTOMATION` schema) — durable ledger, links, retries, audit, worker tables, iteration cache |
+| Oracle driver | `oracledb` v6 thin mode; pool init in `src/lib/oracle.ts` |
+| Queue / worker | Oracle-backed worker tables with `SELECT FOR UPDATE SKIP LOCKED`; polling every 10 s, 50-job batch cap |
+| Dedup | `SYNC_EVENT.DEDUP_KEY` unique constraint; `ORA-00001` catch instead of `SELECT`-then-`INSERT` (TOCTOU-free) |
+| Loop prevention | Origin-stamped private-note marker `[Synced by integration]`; SHA-256 fingerprint on `SYNC_LINK.LAST_ADO_FINGERPRINT` short-circuits redundant writes |
+| Scheduler | `node-cron` — worker poll `*/10 * * * * *`, stale recovery `*/5 * * * *`, reconciler `7,22,37,52 * * * *` |
+| Deployment | Docker on client Linux host; separate stack at `/srv/stacks/zendesk-ado-sync/`; loopback bind + host-level Caddy |
 
 ## Packages Explicitly Not Adopted
 
-| Package / Tool | Reason Not Adopted |
+| Package / Tool | Reason |
 | --- | --- |
-| Express / Fastify | `node:http` is sufficient; zero-dep HTTP keeps the service simple |
+| Express / Fastify | `node:http` is sufficient; zero-framework HTTP keeps the service simple |
 | Redis / pg-boss / bull | Oracle is the mandated store; no separate queue infrastructure |
-| `azure-devops-node-api` (runtime) | Service hooks not covered; `typed-rest-client` HTTP layer adds complexity over our fetch approach |
-| Zendesk webhook signature packages | None exist; our 10-line `crypto.createHmac` implementation is correct |
+| `azure-devops-node-api` runtime client | Service hooks aren't covered; `typed-rest-client` HTTP layer adds complexity over our fetch approach |
+| Zendesk webhook signature packages | None exist; our 10-line `crypto.createHmac` is correct |
 | Temporal / workflow engines | Overkill for v1 volume |
+| Oracle Advanced Queuing (`DBMS_AQADM`) | Not available in the `AUTOMATION` schema; worker tables fill the role |
+| Oracle Instant Client | Not needed — thin-mode driver |
+| `cloudflared` | Evaluated as alternative to public DNS + firewall; rejected because operator lacks Cloudflare dashboard access for `jestais.com` |
 
 ## Key External Constraints
 
@@ -71,24 +132,26 @@
 | Azure DevOps org | `https://dev.azure.com/jestaisinc` |
 | Known visible ADO projects | `VisionSuite`, `Vision Analytics` |
 | Zendesk tenant | `https://jestaissupport.zendesk.com` |
-| Linux target host model | Ubuntu Docker host with loopback bind + Caddy |
-| Public ingress reality | `myprojects.jestais.com` currently resolves to private `172.16.20.97` from Zendesk's point of view, and direct public-IP HTTP timed out during live testing on 2026-04-17 |
-| Secrets handling | Real credentials belong only in local `.env`, not in docs or committed files |
+| Pilot Zendesk form | `Musa ADO Form Testing` (ID `50882600373907`, agents-only, 10 ADO fields attached) |
+| Oracle DB | `AUTOMATION@srv-db-100/SUPPOPS`, Oracle 19c |
+| Linux target host | `ubuntu-docker-host` (172.16.20.97), Ubuntu 24.04, user `admin` (in `sudo` + `docker` groups) |
+| Host networking | `127.0.0.1:8787` loopback; `srv-db-100` pinned to `172.16.25.63` via `extra_hosts` |
+| Secrets | Real credentials only in `/srv/stacks/zendesk-ado-sync/.env` on the host and `~/Projects/devazure-zendesk-sync/.env` locally — never in committed files |
+| Public URL | Pending IT — DNS for `zendesk-sync.jestais.com` + TCP 443 port-forward to the host |
 
 ## Dev Tools
 
-| Tool | Purpose | Usage |
-| --- | --- | --- |
-| `npm run build` | Compile TypeScript | Must pass before delivery |
-| `npm run typecheck` | Type-only validation | Use during implementation |
-| `npm test` | Build + run Node tests | Current regression baseline |
-| `npm run app:install` | Install app-package dependencies | Uses the `zendesk-sidebar-app/` package |
-| `npm run app:dev` | Run sidebar app Vite dev server | Pair with ZCLI from `zendesk-sidebar-app/` during local Zendesk testing |
-| `npm run app:build` | Build the Zendesk sidebar app | Produces `zendesk-sidebar-app/dist/` for private-app packaging |
+| Tool | Purpose |
+| --- | --- |
+| `npm run build` | Compile TypeScript (must pass before delivery / test) |
+| `npm run typecheck` | Type-only validation during implementation |
+| `npm test` | Build + run Node tests (regression baseline) |
+| `npm run package:standalone` | Generate `release/devazure-zendesk-sync/` tarball candidate |
 
 ## Documented Source Of Truth
 
 - Product and delivery context: [product.md](./product.md)
 - Working conventions and document precedence: [workflow.md](./workflow.md)
 - Current and upcoming workstreams: [tracks.md](./tracks.md)
+- Deployment / runbook: [../docs/ops/deployment.md](../docs/ops/deployment.md)
 - Design source material: [../docs/README.md](../docs/README.md)

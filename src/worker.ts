@@ -4,6 +4,14 @@ import type { AppConfig } from './types.js';
 
 export type JobHandler = (jobType: string, payload: unknown, config: AppConfig) => Promise<void>;
 
+export const JOB_TYPES = {
+  createAdoFromZendesk: 'create_ado_from_zendesk',
+  updateAdoFromZendesk: 'update_ado_from_zendesk',
+  syncAdoStateToZendesk: 'sync_ado_state_to_zendesk',
+} as const;
+
+export type JobType = (typeof JOB_TYPES)[keyof typeof JOB_TYPES];
+
 interface PendingJob {
   ID: number;
   JOB_TYPE: string;
@@ -125,7 +133,7 @@ export async function recoverStaleJobs(): Promise<number> {
  */
 export async function persistEventAndEnqueueJob(
   event: { sourceSystem: 'zendesk' | 'ado'; eventType: string; sourceEventId: string | null; dedupKey: string; payload: string },
-  job: { jobType: string; payload: unknown },
+  job: { jobType: string; payload: unknown; relatedLinkId?: number | null },
 ): Promise<{ eventId: number; jobId: number } | null> {
   const conn = await getConnection();
   try {
@@ -159,12 +167,13 @@ export async function persistEventAndEnqueueJob(
 
     // Insert job in the same transaction
     const jobResult = await conn.execute(
-      `INSERT INTO SYNC_JOB (JOB_TYPE, RELATED_EVENT_ID, PAYLOAD, DEDUP_KEY)
-       VALUES (:jobType, :eventId, :payload, :dedupKey)
+      `INSERT INTO SYNC_JOB (JOB_TYPE, RELATED_EVENT_ID, RELATED_LINK_ID, PAYLOAD, DEDUP_KEY)
+       VALUES (:jobType, :eventId, :relatedLinkId, :payload, :dedupKey)
        RETURNING ID INTO :id`,
       {
         jobType: job.jobType,
         eventId,
+        relatedLinkId: job.relatedLinkId ?? null,
         payload: JSON.stringify(job.payload),
         dedupKey: event.dedupKey,
         id: { dir: oracledb.BIND_OUT, type: oracledb.DB_TYPE_NUMBER },

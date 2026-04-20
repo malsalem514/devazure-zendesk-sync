@@ -59,6 +59,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       iterationPath: env['DEVAZURE_ITERATION_PATH']?.trim() || undefined,
       assignedTo: env['DEVAZURE_ASSIGNED_TO']?.trim() || undefined,
       apiVersion: env['DEVAZURE_API_VERSION']?.trim() || '7.1',
+      webhookPath: env['DEVAZURE_WEBHOOK_PATH']?.trim() || '/webhooks/ado',
+      webhookUsername: env['DEVAZURE_WEBHOOK_USERNAME']?.trim() || undefined,
+      webhookPassword: env['DEVAZURE_WEBHOOK_PASSWORD']?.trim() || undefined,
     },
     oracle: {
       user: requireEnv('ORACLE_DB_USERNAME', env),
