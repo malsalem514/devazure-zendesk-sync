@@ -1,36 +1,81 @@
 import { useState } from 'react'
 import styled from 'styled-components'
 import { Button } from '@zendeskgarden/react-buttons'
-import { Field, Hint, Input, Label } from '@zendeskgarden/react-forms'
-import { LG } from '@zendeskgarden/react-typography'
+import { Field, Hint, Input, Label, Message } from '@zendeskgarden/react-forms'
+import { LG, SM } from '@zendeskgarden/react-typography'
 
-export default function ActionScaffold({ labels }) {
+export default function ActionScaffold({ labels, onCreate, onLink, linked }) {
   const [workItemReference, setWorkItemReference] = useState('')
+  const [busy, setBusy] = useState(null) // 'create' | 'link' | null
+  const [error, setError] = useState(null)
+
+  const alreadyLinked = Boolean(linked?.workItemId)
+
+  const handleCreate = async () => {
+    if (!onCreate) return
+    setBusy('create')
+    setError(null)
+    try {
+      await onCreate()
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const handleLink = async () => {
+    if (!onLink || !workItemReference.trim()) return
+    setBusy('link')
+    setError(null)
+    try {
+      await onLink(workItemReference.trim())
+      setWorkItemReference('')
+    } catch (err) {
+      setError(friendlyError(err))
+    } finally {
+      setBusy(null)
+    }
+  }
 
   return (
     <Section>
       <LG isBold>{labels.title}</LG>
       <ButtonsRow>
-        <Button isPrimary disabled>
-          {labels.create}
+        <Button isPrimary disabled={alreadyLinked || busy !== null} onClick={handleCreate}>
+          {busy === 'create' ? labels.creatingLabel : labels.create}
         </Button>
       </ButtonsRow>
+      {alreadyLinked && <SM>{labels.alreadyLinkedHint}</SM>}
+
       <Field>
         <Label>{labels.linkLabel}</Label>
         <Input
           onChange={(event) => setWorkItemReference(event.target.value)}
           placeholder={labels.linkPlaceholder}
           value={workItemReference}
+          disabled={alreadyLinked || busy !== null}
         />
         <Hint>{labels.hint}</Hint>
       </Field>
       <ButtonsRow>
-        <Button disabled={!workItemReference}>
-          {labels.link}
+        <Button disabled={!workItemReference.trim() || alreadyLinked || busy !== null} onClick={handleLink}>
+          {busy === 'link' ? labels.linkingLabel : labels.link}
         </Button>
       </ButtonsRow>
+
+      {error && <Message validation="error">{error}</Message>}
     </Section>
   )
+}
+
+function friendlyError(err) {
+  if (!err) return 'Unknown error'
+  if (typeof err === 'string') return err
+  if (err.responseJSON?.message) return err.responseJSON.message
+  if (err.responseText) return err.responseText
+  if (err.message) return err.message
+  return 'Action failed'
 }
 
 const Section = styled.section`

@@ -90,3 +90,88 @@ test('buildSummaryFromSnapshot: tolerates trims empty/whitespace field values to
   assert.equal(result.workItem?.statusDetail, null);
   assert.equal(result.workItem?.sprint, null);
 });
+
+import { parseWorkItemReference, ticketToEvent, AppActionError } from '../dist/app-handlers.js';
+
+test('parseWorkItemReference: numeric id', () => {
+  assert.equal(parseWorkItemReference('79741'), 79741);
+  assert.equal(parseWorkItemReference('  42  '), 42);
+});
+
+test('parseWorkItemReference: ADO URL', () => {
+  assert.equal(
+    parseWorkItemReference('https://dev.azure.com/jestaisinc/VisionSuite/_workitems/edit/79741'),
+    79741,
+  );
+});
+
+test('parseWorkItemReference: URL with query string and fragment', () => {
+  assert.equal(
+    parseWorkItemReference('https://dev.azure.com/org/proj/_workitems/edit/123?foo=bar#tab'),
+    123,
+  );
+});
+
+test('parseWorkItemReference: rejects garbage', () => {
+  assert.throws(() => parseWorkItemReference('not-a-work-item'), AppActionError);
+  assert.throws(() => parseWorkItemReference('https://example.com/other/path'), AppActionError);
+  assert.throws(() => parseWorkItemReference(''), AppActionError);
+});
+
+test('ticketToEvent: reads routing fields from custom_fields by id', () => {
+  const ticket = {
+    id: 39045,
+    subject: 'Test ticket',
+    description: 'body',
+    status: 'open',
+    priority: 'high',
+    type: 'incident',
+    tags: ['ado_sync_pilot', 'other'],
+    requester_id: 12345,
+    assignee_id: 67890,
+    organization_id: null,
+    group_id: 1,
+    brand_id: 2,
+    via: { channel: 'email' },
+    updated_at: '2026-04-20T15:00:00Z',
+    created_at: '2026-04-20T14:00:00Z',
+    custom_fields: [
+      { id: 40815528446739, value: 'omni' },
+      { id: 40990804522131, value: 'defect' },
+      { id: 40992814161939, value: 'CRF-123' },
+      { id: 99999999, value: 'unrelated' },
+    ],
+  };
+  const event = ticketToEvent(ticket, 'sidebar_create');
+  assert.equal(event.detail.id, '39045');
+  assert.equal(event.detail.product, 'omni');
+  assert.equal(event.detail.caseType, 'defect');
+  assert.equal(event.detail.crf, 'CRF-123');
+  assert.equal(event.detail.orgName, null);
+  assert.equal(event.detail.viaChannel, 'email');
+  assert.equal(event.detail.subject, 'Test ticket');
+  assert.deepEqual(event.detail.tags, ['ado_sync_pilot', 'other']);
+  assert.equal(event.detail.requesterId, '12345');
+  assert.match(event.id, /^sidebar_create:39045:\d+$/);
+  assert.equal(event.type, 'zen:event-type:ticket.created');
+});
+
+test('ticketToEvent: uses sidebar_link prefix and type when source is link', () => {
+  const event = ticketToEvent({ id: 1, custom_fields: [] }, 'sidebar_link');
+  assert.match(event.id, /^sidebar_link:1:\d+$/);
+  assert.equal(event.type, 'zen:event-type:ticket.linked');
+});
+
+test('ticketToEvent: tolerates missing optional fields', () => {
+  const event = ticketToEvent({ id: 42, custom_fields: [] }, 'sidebar_create');
+  assert.equal(event.detail.subject, null);
+  assert.equal(event.detail.product, null);
+  assert.equal(event.detail.caseType, null);
+  assert.equal(event.detail.viaChannel, null);
+  assert.deepEqual(event.detail.tags, []);
+});
+
+test('ticketToEvent: throws on missing numeric id', () => {
+  assert.throws(() => ticketToEvent({ custom_fields: [] }, 'sidebar_create'), AppActionError);
+  assert.throws(() => ticketToEvent({ id: 'abc', custom_fields: [] }, 'sidebar_create'), AppActionError);
+});

@@ -56,6 +56,8 @@ Phases 1–5 are code-complete in-repo. The stack is deployed to `ubuntu-docker-
 - `POST /webhooks/zendesk` — Zendesk ticket events (HMAC-signature verified)
 - `POST /webhooks/ado` — ADO service-hook events (Basic-auth verified)
 - `GET /app/ado/tickets/:ticketId/summary` — sidebar app view model (ZAF JWT verified; `src/lib/zaf-auth.ts`)
+- `POST /app/ado/tickets/:ticketId/create` — agent-initiated create (immediate, idempotent via `SYNC_LINK`)
+- `POST /app/ado/tickets/:ticketId/link` — link existing ADO work item by numeric ID or ADO URL; adds `zendesk:id:<id>` tag, inserts `SYNC_LINK` (`LINK_MODE='linked'`), writes current ADO state back to Zendesk immediately
 
 ### Inbound webhook pipeline
 
@@ -128,10 +130,9 @@ Current scaffold state (Milestone 1 of 5):
 - `Create new ADO` and `Link existing ADO` surfaces are scaffold-only until backend endpoints land
 
 Pending (`APP-005`):
-- ~~`GET /app/ado/tickets/:ticketId/summary`~~ — landed (ZAF JWT auth + Oracle `SYNC_LINK` + Zendesk custom fields). Scaffold still reads fields directly; Milestone 2 is to wire it to this endpoint with fallback.
-- Backend endpoints still to build: `POST .../create`, `POST .../link`
-- Auth: client calls via `client.request()` with ZAF JWT in `Authorization`, backend verifies with `ZENDESK_APP_SHARED_SECRET`
-- Install as a private app in the live Zendesk tenant with the shared secret in secure settings
+- ~~Backend endpoints — all three landed and smoke-tested live~~: `GET .../summary`, `POST .../create`, `POST .../link`
+- ~~Sidebar wired to backend~~ — `fetchSummary` with direct-field fallback; `postCreate` / `postLink` drive ActionScaffold buttons (loading + error states)
+- Remaining: **install as a private app in the live Zendesk tenant**, set `backendBaseUrl` and `appSharedSecret` in the app's secure settings, validate on a real ticket in the `Musa ADO Form Testing` form
 
 Because the sidebar renders live ADO state (status, sprint, ETA, sync health), **Phase 4 reverse sync is a dependency of the sidebar UX**, not a replacement for it.
 

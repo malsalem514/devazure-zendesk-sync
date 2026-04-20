@@ -2,7 +2,12 @@ import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AppConfig } from './types.js';
 import { parseAdoEvent } from './ado-event-parser.js';
-import { getTicketSummary } from './app-handlers.js';
+import {
+  AppActionError,
+  createAdoFromTicket,
+  getTicketSummary,
+  linkExistingAdoWorkItem,
+} from './app-handlers.js';
 import { DevAzureClient } from './devazure-client.js';
 import { buildBasicAuthHeaderValue } from './lib/basic-auth.js';
 import { healthCheck as oracleHealthCheck } from './lib/oracle.js';
@@ -137,9 +142,10 @@ export function createWebhookServer(config: AppConfig): Server {
         return;
       }
 
-      // Sidebar app summary endpoint: GET /app/ado/tickets/:ticketId/summary
-      const appSummaryMatch = path.match(/^\/app\/ado\/tickets\/([^/]+)\/summary$/);
-      if (request.method === 'GET' && appSummaryMatch) {
+      // Sidebar app endpoints: all under /app/ado/tickets/:ticketId/*
+      const appRouteMatch = path.match(/^\/app\/ado\/tickets\/([^/]+)\/(summary|create|link)$/);
+      if (appRouteMatch) {
+        const [, ticketIdRaw, action] = appRouteMatch;
         const secret = config.zendesk.appSharedSecret;
         if (!secret) {
           throw new HttpError('ZAF shared secret not configured', 500);
@@ -156,9 +162,47 @@ export function createWebhookServer(config: AppConfig): Server {
           }
           throw err;
         }
-        const summary = await getTicketSummary(config, appSummaryMatch[1]);
-        json(response, 200, summary);
-        return;
+
+        try {
+          if (request.method === 'GET' && action === 'summary') {
+            const summary = await getTicketSummary(config, ticketIdRaw);
+            json(response, 200, summary);
+            return;
+          }
+
+          if (request.method === 'POST' && action === 'create') {
+            const result = await createAdoFromTicket(config, ticketIdRaw, devAzureClient);
+            console.log(`[app] ${result.action} ticket=${ticketIdRaw} workItem=${result.summary.workItem?.id}`);
+            json(response, result.action === 'created' ? 201 : 200, { ok: true, ...result });
+            return;
+          }
+
+          if (request.method === 'POST' && action === 'link') {
+            const rawBody = await readRequestBody(request);
+            let body: unknown;
+            try {
+              body = JSON.parse(rawBody || '{}');
+            } catch {
+              throw new HttpError('Invalid JSON body', 400);
+            }
+            const reference = (body as { workItemReference?: unknown })?.workItemReference;
+            if (typeof reference !== 'string' || reference.trim() === '') {
+              throw new HttpError('Body must include workItemReference (numeric ID or ADO URL)', 400);
+            }
+            const result = await linkExistingAdoWorkItem(config, ticketIdRaw, reference, devAzureClient);
+            console.log(`[app] ${result.action} ticket=${ticketIdRaw} workItem=${result.summary.workItem?.id}`);
+            json(response, result.action === 'linked' ? 201 : 200, { ok: true, ...result });
+            return;
+          }
+
+          json(response, 405, { ok: false, message: 'Method not allowed' });
+          return;
+        } catch (err) {
+          if (err instanceof AppActionError) {
+            throw new HttpError(err.message, err.statusCode);
+          }
+          throw err;
+        }
       }
 
       console.log(`[devazure-zendesk-sync] ${request.method} ${path}`);

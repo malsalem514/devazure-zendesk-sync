@@ -15,3 +15,14 @@ export const ZENDESK_FIELD_IDS: Record<string, number> = {
   ado_sync_health: 50877218501395,
   ado_last_sync_at: 50877208248211,
 };
+
+/**
+ * Zendesk custom field IDs for the *input* fields that drive routing/classification.
+ * The webhook inlines these via liquid variables on `event.detail.*`; the sidebar
+ * app's immediate-create path reads them directly off the ticket API response.
+ */
+export const ZENDESK_ROUTING_FIELD_IDS: Record<string, number> = {
+  product: 40815528446739,    // "Product ORIG"
+  case_type: 40990804522131,  // "Case Type"
+  crf: 40992814161939,        // "CRF"
+};

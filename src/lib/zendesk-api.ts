@@ -50,20 +50,26 @@ export interface ZendeskTicketSnapshot {
   customFields: Record<number, unknown>;
 }
 
-export async function getTicket(config: AppConfig, ticketId: number | string): Promise<ZendeskTicketSnapshot | null> {
+export async function getTicketRaw(config: AppConfig, ticketId: number | string): Promise<Record<string, unknown> | null> {
   try {
     const result = (await getClient(config).tickets.show(Number(ticketId))) as any;
     const ticket = result?.ticket ?? result;
     if (!ticket || typeof ticket !== 'object') return null;
-    const customFields: Record<number, unknown> = {};
-    for (const f of (ticket.custom_fields ?? []) as Array<{ id: number; value: unknown }>) {
-      customFields[f.id] = f.value;
-    }
-    return { id: Number(ticket.id), subject: ticket.subject ?? null, customFields };
+    return ticket as Record<string, unknown>;
   } catch (err: any) {
     if (err?.statusCode === 404 || err?.result?.statusCode === 404) return null;
     throw err;
   }
+}
+
+export async function getTicket(config: AppConfig, ticketId: number | string): Promise<ZendeskTicketSnapshot | null> {
+  const ticket = await getTicketRaw(config, ticketId);
+  if (!ticket) return null;
+  const customFields: Record<number, unknown> = {};
+  for (const f of (ticket.custom_fields ?? []) as Array<{ id: number; value: unknown }>) {
+    customFields[f.id] = f.value;
+  }
+  return { id: Number(ticket.id), subject: (ticket.subject as string | null | undefined) ?? null, customFields };
 }
 
 export async function createTicketField(

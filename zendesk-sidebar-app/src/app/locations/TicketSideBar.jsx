@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 import styled from 'styled-components'
 import { Spinner } from '@zendeskgarden/react-loaders'
 import { LG, MD, SM, XL } from '@zendeskgarden/react-typography'
@@ -8,6 +8,7 @@ import { useTicketSnapshot } from '../hooks/useTicketSnapshot.js'
 import { SIDEBAR_HEIGHT } from '../config.js'
 import LinkedWorkItemCard from '../components/LinkedWorkItemCard.jsx'
 import ActionScaffold from '../components/ActionScaffold.jsx'
+import { postCreate, postLink } from '../lib/backend.js'
 
 function hasLinkedItem(linked) {
   return Boolean(linked?.workItemId || linked?.workItemUrl)
@@ -16,7 +17,22 @@ function hasLinkedItem(linked) {
 export default function TicketSideBar() {
   const client = useClient()
   const i18n = useI18n()
-  const { snapshot, loading, error } = useTicketSnapshot(client)
+  const { snapshot, loading, error, refresh } = useTicketSnapshot(client)
+
+  const handleCreate = useCallback(async () => {
+    if (!snapshot?.ticketId) throw new Error('Ticket id not available')
+    await postCreate(client, snapshot.ticketId)
+    await refresh()
+  }, [client, snapshot?.ticketId, refresh])
+
+  const handleLink = useCallback(
+    async (workItemReference) => {
+      if (!snapshot?.ticketId) throw new Error('Ticket id not available')
+      await postLink(client, snapshot.ticketId, workItemReference)
+      await refresh()
+    },
+    [client, snapshot?.ticketId, refresh],
+  )
 
   useEffect(() => {
     client.invoke('resize', { width: '100%', height: SIDEBAR_HEIGHT })
@@ -98,12 +114,18 @@ export default function TicketSideBar() {
       )}
 
       <ActionScaffold
+        linked={linked}
+        onCreate={handleCreate}
+        onLink={handleLink}
         labels={{
           title: i18n.t('ticket_sidebar.actions_title'),
           create: i18n.t('ticket_sidebar.create_button'),
+          creatingLabel: i18n.t('ticket_sidebar.create_button_working') || 'Creating…',
           linkLabel: i18n.t('ticket_sidebar.link_label'),
           linkPlaceholder: i18n.t('ticket_sidebar.link_placeholder'),
           link: i18n.t('ticket_sidebar.link_button'),
+          linkingLabel: i18n.t('ticket_sidebar.link_button_working') || 'Linking…',
+          alreadyLinkedHint: i18n.t('ticket_sidebar.already_linked_hint') || 'This ticket is already linked.',
           hint: i18n.t('ticket_sidebar.actions_hint')
         }}
       />
