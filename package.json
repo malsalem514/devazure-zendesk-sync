@@ -11,7 +11,10 @@
     "start": "node --env-file-if-exists=.env dist/index.js",
     "dev": "tsc -p tsconfig.json --watch",
     "test": "npm run build && node --test test/*.test.mjs",
-    "package:standalone": "npm run build && node ./scripts/package-standalone.mjs"
+    "package:standalone": "npm run build && node ./scripts/package-standalone.mjs",
+    "app:install": "npm --prefix zendesk-sidebar-app install",
+    "app:dev": "npm --prefix zendesk-sidebar-app run dev",
+    "app:build": "npm --prefix zendesk-sidebar-app run build"
   },
   "files": [
     "dist",

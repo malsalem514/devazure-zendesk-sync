@@ -1,0 +1,4 @@
+dist
+node_modules
+zcli.apps.config.json
+.DS_Store

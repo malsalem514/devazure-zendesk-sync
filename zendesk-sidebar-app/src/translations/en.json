@@ -1,0 +1,34 @@
+{
+  "app": {
+    "name": "Jesta Azure DevOps Sidebar",
+    "short_description": "Private Zendesk sidebar app for Azure DevOps create and link workflows.",
+    "long_description": "A private Zendesk sidebar app for Jesta I.S. agents to create new Azure DevOps work items, link existing ones, and view the current engineering handoff state without leaving Zendesk.",
+    "installation_instructions": "Install as a private Zendesk Support app. During pilot, the app is intended to be visible only on the Musa ADO Form Testing ticket form."
+  },
+  "ticket_sidebar": {
+    "title": "Azure DevOps",
+    "pilot_badge": "Pilot form active",
+    "scaffold_title": "Scaffold stage",
+    "scaffold_body": "This first pass uses the official Zendesk React scaffold shape, reads the live ticket context, and gates itself to the pilot form. Create and link actions will be wired next.",
+    "ticket_label": "Zendesk ticket",
+    "linked_title": "Linked work item",
+    "linked_open": "Open in Azure DevOps",
+    "linked_empty_title": "No Azure DevOps item linked",
+    "linked_empty_body": "Use the sidebar actions to create a new engineering ticket or link an existing work item once the backend actions are wired.",
+    "status_label": "Engineering status",
+    "detail_label": "Status detail",
+    "sprint_label": "Sprint",
+    "eta_label": "ETA",
+    "sync_health_label": "Sync health",
+    "last_sync_label": "Last sync",
+    "actions_title": "Actions",
+    "create_button": "Create new ADO",
+    "link_label": "Existing ADO ID or URL",
+    "link_placeholder": "79741 or https://dev.azure.com/...",
+    "link_button": "Link existing ADO",
+    "actions_hint": "Scaffold only. The next backend step is wiring create and link actions to app endpoints.",
+    "loading": "Loading ticket context...",
+    "error_title": "Could not load the Azure DevOps sidebar state.",
+    "not_pilot_form": "This app is only enabled on the pilot form during development."
+  }
+}
