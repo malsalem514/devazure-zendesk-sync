@@ -4,7 +4,7 @@
 
 | ID | Title | Status | Priority | Notes |
 | --- | --- | --- | --- | --- |
-| APP-005 | Zendesk sidebar app package + app endpoints | in_progress | high | Backend: `GET /summary`, `POST /create`, `POST /link` all live and smoke-tested on `ubuntu-docker-host` with ZAF JWT auth. Scaffold wired via `client.request({secure:true})` with direct-field fallback. Only remaining work: tenant install (set `backendBaseUrl` + `appSharedSecret` in app secure settings) and end-to-end validation on a real pilot-form ticket. |
+| APP-005 | Zendesk sidebar app package + app endpoints | pilot-validation | high | Backend + scaffold + tenant install all done. Remaining: open a `Musa ADO Form Testing` ticket in Zendesk, confirm the sidebar renders linked state for ticket #39045 via backend (`summarySource: 'backend'`), test the Create / Link actions on a fresh ticket. Blocker: sidebar points at the Cloudflare quick tunnel; if that URL rotates, the install's `backendBaseUrl` has to be updated until `OPS-002` lands a stable public URL. |
 | OPS-002 | Public URL + Caddy go-live | blocked (IT) | high | Waiting on DNS record for `zendesk-sync.jestais.com` + TCP 443 port-forward from jestais firewall/NAT to `172.16.20.97`. Caddy site block staged at `/tmp/caddy-zendesk-sync.snippet` on host, hook-registration scripts ready. |
 | APP-004 | Comment and attachment sync policy (Phase 6) | planned | medium | Private-note-first comment sync with integration marker, link-existing workflow (paste ADO URL), relink audit trail |
 | HARDEN-001 | Observability and replay protection | planned | medium | `POST /internal/reconcile`, `GET /internal/failed-jobs`, log rotation, structured logs, kill-switch flag |
@@ -32,6 +32,7 @@
 | OPS-DEPLOY-2 | Live deploy of unified `main` to `ubuntu-docker-host`: image rebuilt, container healthy, `dryRun=false`, first live reverse-sync job (`sync_ado_state_to_zendesk` #601) completed in 11 s with zero retries | 2026-04-20 |
 | APP-005a | Backend summary endpoint for sidebar app: `GET /app/ado/tickets/:id/summary`, ZAF JWT verifier (`src/lib/zaf-auth.ts`), view-model assembler, 15 unit tests | 2026-04-20 |
 | APP-005b | Backend create + link endpoints: `POST /app/ado/tickets/:id/create` (immediate, idempotent via `SYNC_LINK`) and `POST .../link` (numeric ID or ADO URL, adds `zendesk:id` tag, writes current ADO state). Sidebar scaffold wired to all three endpoints with direct-field fallback. 45 unit tests. Smoke-tested live against ticket #39045 → ADO #79741. | 2026-04-20 |
+| APP-005c | Sidebar app installed in `jestaissupport.zendesk.com` (app_id `1240317`, installation `50988210128019`, product `support`, enabled). Settings: `backendBaseUrl` → current Cloudflare quick tunnel URL, `appSharedSecret` → stored encrypted in Zendesk secure settings. | 2026-04-20 |
 | CLEAN-001 | Purged 282 DEAD `sync_ado_state_to_zendesk` rows accumulated from the pre-deploy handler gap (kept 1 real DEAD `create_ado_from_zendesk` for audit) | 2026-04-20 |
 
 ## Current Implementation Gap
