@@ -32,7 +32,8 @@ Build a standalone integration service that:
 | Secure Zendesk webhook intake | implemented | Current starter accepts Zendesk events with signature verification and dry-run support |
 | One-way ADO create or update flow | implemented | Current starter creates or updates an Azure DevOps work item using Zendesk ticket metadata |
 | Oracle-backed sync ledger and worker model | planned | Target v1 stores events, links, retries, and audit state in Oracle-backed tables |
-| Zendesk create vs link-existing workflow | planned | Agents should be able to create a new ADO item or connect an existing one |
+| Zendesk create vs link-existing workflow | in_progress | Preferred v1 UX is a small private Zendesk sidebar app from day 1; the scaffold package now exists locally, but backend app endpoints and live tenant installation still need to be completed |
+| Zendesk sidebar app package | in_progress | Official React scaffold-based app package exists under `zendesk-sidebar-app/` and already implements pilot-form gating plus read-only linked-item display |
 | Bidirectional status and sprint sync | planned | Zendesk should surface engineering status, sprint, and ETA fields from ADO |
 | Comment and attachment sync policy | planned | Private-note-first comment sync and approved attachment handling |
 | Linux Docker deployment package | planned | Dedicated stack beside existing services on the client host |
@@ -49,5 +50,5 @@ Build a standalone integration service that:
 ## Roadmap
 
 - **Phase 0**: Keep the current one-way starter working as a safe baseline.
-- **Phase 1**: Add Oracle-backed persistence, worker tables, routing, and v1 field/status sync.
+- **Phase 1**: Add Oracle-backed persistence, worker tables, routing, v1 field/status sync, and the first usable sidebar app flow.
 - **Phase 2**: Add richer operator workflows, comment/attachment expansion, and stronger admin surfaces.

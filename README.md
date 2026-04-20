@@ -1,6 +1,6 @@
 # DevAzure Zendesk Sync
 
-Standalone service for integrating Zendesk with DevAzure.
+Standalone Zendesk <-> Azure DevOps integration for Jestais, with a Node/TypeScript backend service and a scaffolded private Zendesk sidebar app package.
 
 ## Project Context
 
@@ -14,15 +14,19 @@ For implementation work, start with:
 - [conductor/workflow.md](./conductor/workflow.md) for document precedence and working rules
 - [conductor/tracks.md](./conductor/tracks.md) for the current workstream list
 
-## Default assumption
+## Current assumption
 
-This starter assumes you want **Zendesk ticket events to create or update DevAzure work items**.
+The repo now contains two complementary parts:
 
-- Source of truth for customer incidents: Zendesk
-- Engineering execution target: DevAzure work items
-- Delivery shape: webhook-driven, one-way sync first
+- `src/` -> the live backend integration service
+- `zendesk-sidebar-app/` -> the private Zendesk sidebar app package
 
-If you meant a different flow, such as DevAzure test cases back into Zendesk or full bidirectional sync, this project is still a good base but the mapping rules should be changed before production rollout.
+The current live backend is still a safe one-way baseline plus Zendesk field writeback, while the target v1 deliverable is broader:
+
+- Zendesk remains the support-facing source of truth
+- Azure DevOps remains the engineering execution system
+- agents should ultimately use the sidebar app as the primary create/link/status UX
+- reverse ADO -> Zendesk sync, stable ingress, and app-facing backend endpoints are still pending
 
 ## What is included
 
@@ -33,6 +37,7 @@ If you meant a different flow, such as DevAzure test cases back into Zendesk or 
 - Mapping layer that turns a Zendesk ticket event into DevAzure JSON Patch operations
 - Dry-run mode for safe setup and validation
 - Node built-in test coverage for signature validation and mapping behavior
+- A scaffolded private Zendesk sidebar app package under `zendesk-sidebar-app/`
 
 ## Official references used
 
@@ -91,7 +96,8 @@ The fuller spec and design set now lives inside this standalone project:
 - [docs/README.md](./docs/README.md)
 - [docs/proposals/ZENDESK-AZURE-DEVOPS-INTEGRATION-TECHNICAL-SPEC.md](./docs/proposals/ZENDESK-AZURE-DEVOPS-INTEGRATION-TECHNICAL-SPEC.md)
 - [docs/proposals/ZENDESK-ADO-FULL-SOLUTION-DESIGN.md](./docs/proposals/ZENDESK-ADO-FULL-SOLUTION-DESIGN.md)
-- [docs/reports/2026-04-15-zendesk-ado-sota-research-gap-analysis.md](./docs/reports/2026-04-15-zendesk-ado-sota-research-gap-analysis.md)
+- [docs/proposals/ZENDESK-SIDEBAR-APP-IMPLEMENTATION-SPEC.md](./docs/proposals/ZENDESK-SIDEBAR-APP-IMPLEMENTATION-SPEC.md)
+- [docs/reports/2026-04-17-zendesk-sidebar-app-sota-and-knowledge-gap-analysis.md](./docs/reports/2026-04-17-zendesk-sidebar-app-sota-and-knowledge-gap-analysis.md)
 
 ## Environment
 
@@ -135,8 +141,8 @@ Default field mapping:
 
 ## Suggested next steps
 
-- Add a persistence layer for idempotency beyond tag lookup
-- Map Zendesk groups or brands to DevAzure `AreaPath`
-- Add comment syncing for public ticket replies
-- Add reverse sync for DevAzure state changes back to Zendesk
-- Add deployment packaging for a real HTTPS target
+- Install and validate the scaffolded sidebar app on `Musa ADO Form Testing`
+- Add app-facing backend endpoints for summary, create, and link-existing
+- Add reverse sync for Azure DevOps state changes back to Zendesk
+- Replace the temporary quick tunnel with stable public ingress
+- Add deployment packaging for the final client HTTPS target

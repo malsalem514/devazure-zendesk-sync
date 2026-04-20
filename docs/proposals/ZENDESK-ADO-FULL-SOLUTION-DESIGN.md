@@ -68,6 +68,7 @@ Confirmed live forms:
 - `Support` (`41831496024083`) — active, default
 - `L1 Helpdesk` (`41726482067219`) — active
 - `IT` (`43269650284563`) — active
+- `Musa ADO Form Testing` (`50882600373907`) — active
 - `Support - SW Test` / `Testing - Do not use` (`49194441682579`) — active
 - one inactive test form
 
@@ -406,15 +407,15 @@ Optional later operational fields:
 Because Zendesk fields are global but forms control exposure, the safe scoping model is:
 
 - create the `ADO *` fields globally
-- attach them first to `Support - SW Test`
+- attach them first to `Musa ADO Form Testing`
 - validate behavior there
-- then attach them to `Support`
+- then expand to broader support forms as approved
 - do not attach them to `L1 Helpdesk`
 - do not attach them to `IT`
 
 Current recommended v1 rollout scope:
 
-- forms in scope: `Support - SW Test`, then `Support`
+- forms in scope: `Musa ADO Form Testing`, then broader support forms as approved
 - forms out of scope: `L1 Helpdesk`, `IT`, inactive test form
 
 ## 8.3 Zendesk Field Placement
@@ -427,7 +428,17 @@ Recommended placement on the `Support` form:
   - `Scopus Case #`
   - `Developer`
 
-Recommended support-visible order:
+Approved v1 support-visible order on the standard form:
+
+1. existing `Dev Funnel #`
+
+The primary v1 create/link/status experience should live in a small private Zendesk sidebar app, not in standard form fields.
+
+The machine-owned `ADO *` fields should not be shown on the standard `Support` workflow in the first app-first rollout.
+
+If a later pilot proves that agents need more inline visibility on the form itself, the next-smallest enhancement should be one compact support-friendly status field near `Dev Funnel #`, not the full backend field block.
+
+Previous support-visible order if a later rollout intentionally exposes the synced fields:
 
 1. `ADO Work Item ID`
 2. `ADO Work Item URL`

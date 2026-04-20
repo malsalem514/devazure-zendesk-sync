@@ -599,15 +599,23 @@ Recommended ticket experience:
 - New items should create as `Bug` by default in v1 unless an approved routing rule selects a different work item type.
 - Linking should accept either a numeric Azure DevOps work item ID or a full Azure DevOps work item URL.
 - Relinking should be allowed, but it must generate a Zendesk internal audit note that records the previous and new work item reference.
-- Agents monitor `ADO Status`, `ADO Sprint`, `ADO Sprint Start`, `ADO Sprint End`, `ADO ETA`, and the deep link without leaving Zendesk.
+- The preferred v1 UX is a small private Zendesk ticket sidebar app from day 1.
+- The visible v1 flow is:
+  - `Create new ADO`
+  - `Link existing ADO`
+  - current linked item and support-friendly engineering status in the sidebar
+  - existing `Dev Funnel #` optionally populated as a familiar visible reference after success
+- During development and pilot, the app should be visible only on the designated pilot form `Musa ADO Form Testing` (`50882600373907`), then expanded later at go-live if approved.
 - Agents receive significant engineering updates as internal notes.
 - Engineers continue working in Azure DevOps without needing to mirror every support operation.
 
 Recommended UI pattern:
 
 - Use Zendesk ticket fields for stored reporting values.
-- Use Zendesk ticket fields plus private notes in v1.
-- Keep the Zendesk ticket sidebar app in phase 2 unless native field permissions prove insufficient during pilot.
+- Use the sidebar app as the primary create/link/status UI in v1.
+- Use private notes for audit and significant updates.
+- Keep the machine-owned `ADO *` fields off the normal support form unless testing, operator workflows, or reporting require them.
+- Avoid a native-field-first rollout so the client only needs one training and one change-management pass.
 
 ## 15. Open Decisions Before Full Implementation
 
@@ -637,7 +645,7 @@ Recommended UI pattern:
 5. Create the new Zendesk integration-owned fields, starting with `ADO Status`, `ADO Status Detail`, and `ADO ETA`.
 6. Add sprint visibility fields: `ADO Sprint`, `ADO Sprint Start`, and `ADO Sprint End`.
 7. Finalize the status matrix using the existing Zendesk and Azure DevOps tenant vocabulary.
-8. Keep the first agent-facing release on fields plus private notes, with the sidebar app deferred to phase 2 unless pilot feedback changes that.
+8. Start the first agent-facing release on the private Zendesk sidebar app package and use fields plus private notes as storage and audit plumbing behind it.
 9. Add an integration ledger for idempotency, retries, manual replay, and audit.
 10. Implement Zendesk to Azure DevOps create and update using the confirmed required ADO fields.
 11. Add reverse synchronization for `ADO Status`, `ADO Status Detail`, sprint fields, `ADO ETA`, and significant internal updates.

@@ -1,8 +1,14 @@
 # Zendesk Azure DevOps Integration Solution Summary
 
-**Status:** Working draft  
+**Status:** Historical working draft  
 **Prepared On:** 2026-04-15  
 **Purpose:** Capture what has been confirmed, what has been decided, and what is still open for design.
+
+> Historical note: this summary remains useful for early discovery facts, but its old UI and rollout decisions are superseded by the current canonical docs. In particular, the sidebar app is now a phase-1 deliverable, not a phase-2 fallback. Use these documents for current implementation work:
+>
+> - [ZENDESK-AZURE-DEVOPS-INTEGRATION-TECHNICAL-SPEC.md](./ZENDESK-AZURE-DEVOPS-INTEGRATION-TECHNICAL-SPEC.md)
+> - [ZENDESK-ADO-V1-FIELD-DEFINITIONS.md](./ZENDESK-ADO-V1-FIELD-DEFINITIONS.md)
+> - [ZENDESK-SIDEBAR-APP-IMPLEMENTATION-SPEC.md](./ZENDESK-SIDEBAR-APP-IMPLEMENTATION-SPEC.md)
 
 Primary detailed design reference:
 
@@ -290,8 +296,8 @@ The current best-fit production stack is:
 - Oracle for sync ledger, audit, and admin queries, using the client’s existing database estate
 - Oracle-backed worker tables as the likely v1 pattern
 - Oracle-native queueing only if the DBA team later enables AQ for the integration schema
-- Zendesk fields plus private notes in v1
-- optional Zendesk sidebar app in phase 2 if field UX proves insufficient
+- Zendesk fields plus private notes as storage and audit plumbing in v1
+- a small Zendesk sidebar app as the approved phase-1 create/link/status UX
 
 This keeps the service standalone, operationally simple, and aligned with the existing starter while avoiding unnecessary new infrastructure.
 
@@ -324,8 +330,8 @@ The current approved v1 workflow is:
 - agents can link an existing ADO item using either an ADO ID or full ADO URL
 - new Zendesk escalations should create `Bug` by default unless later routing rules override the work item type
 - relinking is allowed, but the integration must leave an internal audit note showing the old and new link
-- v1 uses fields plus private notes as the primary agent experience
-- the sidebar app remains phase 2 unless field UX proves insufficient in pilot
+- v1 uses the sidebar app as the primary agent experience, with fields plus private notes as storage and audit plumbing behind it
+- the sidebar app is no longer a phase-2 fallback
 
 ## Decision L: The Azure DevOps integration identity will be provisioned with elevated admin capability
 
@@ -519,7 +525,7 @@ These are still working labels and can be refined with the business.
 6. Approve a small v1 routing table from Zendesk product families to ADO area paths.
 7. Define the Azure DevOps to Zendesk status mapping table.
 8. Define the sprint and ETA fallback hierarchy.
-9. Keep the sidebar app explicitly in phase 2 unless pilot feedback proves it is needed earlier.
+9. Implement the sidebar app as a phase-1 deliverable, then validate it on the pilot form before expanding rollout.
 10. Verify Azure DevOps service-hook creation rights and attachment upload permission.
 11. Lock Oracle-backed worker tables as the v1 worker pattern unless the DBA team later enables AQ, then draft the deployment shape for the new container on the existing Linux Docker host.
 

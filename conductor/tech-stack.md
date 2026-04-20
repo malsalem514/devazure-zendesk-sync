@@ -7,6 +7,9 @@
 | Node.js | `>=24.14.0 <25.0.0` | Runtime for the standalone integration service |
 | TypeScript | `^5.9.3` | Service implementation and type safety |
 | Node built-ins | current runtime pattern | HTTP server, crypto, fetch, and test support without framework lock-in |
+| React | `^18.2.0` in `zendesk-sidebar-app/` | Private Zendesk sidebar app UI |
+| Vite | `^6.x` in `zendesk-sidebar-app/` | Build tool for the Zendesk sidebar app package |
+| Zendesk Garden | `^8.x` packages in `zendesk-sidebar-app/` | Native-feeling app UI components for Agent Workspace |
 
 ## Current Codebase Shape
 
@@ -18,6 +21,7 @@
 | `src/sync-planner.ts` | implemented | Starter create/update planning and field mapping |
 | `src/devazure-client.ts` | implemented | Azure DevOps work item lookup and JSON Patch operations |
 | `test/*.test.mjs` | implemented | Node built-in tests for signature logic and sync planning |
+| `zendesk-sidebar-app/` | scaffold started | Private Zendesk sidebar app package based on the official React scaffold pattern |
 
 ## Target Runtime Dependencies
 
@@ -47,6 +51,7 @@
 | Loop prevention | Origin stamp + fingerprint hash + integration marker in comments | Comment bodies stamped with `[Synced from {system} by integration]` |
 | Deployment | Docker on client Linux host | Separate stack under `/srv/stacks/<integration-name>` |
 | Reverse proxy | Host-level Caddy | Follow current live-host pattern |
+| Temporary pilot ingress | Cloudflare Quick Tunnel -> `127.0.0.1:8787` | Stopgap for Zendesk webhook reachability without waiting on IT; ephemeral URL, not production-grade |
 | Upstream systems | Zendesk + Azure DevOps | Standalone client-owned integration boundary |
 
 ## Packages Explicitly Not Adopted
@@ -67,6 +72,7 @@
 | Known visible ADO projects | `VisionSuite`, `Vision Analytics` |
 | Zendesk tenant | `https://jestaissupport.zendesk.com` |
 | Linux target host model | Ubuntu Docker host with loopback bind + Caddy |
+| Public ingress reality | `myprojects.jestais.com` currently resolves to private `172.16.20.97` from Zendesk's point of view, and direct public-IP HTTP timed out during live testing on 2026-04-17 |
 | Secrets handling | Real credentials belong only in local `.env`, not in docs or committed files |
 
 ## Dev Tools
@@ -76,6 +82,9 @@
 | `npm run build` | Compile TypeScript | Must pass before delivery |
 | `npm run typecheck` | Type-only validation | Use during implementation |
 | `npm test` | Build + run Node tests | Current regression baseline |
+| `npm run app:install` | Install app-package dependencies | Uses the `zendesk-sidebar-app/` package |
+| `npm run app:dev` | Run sidebar app Vite dev server | Pair with ZCLI from `zendesk-sidebar-app/` during local Zendesk testing |
+| `npm run app:build` | Build the Zendesk sidebar app | Produces `zendesk-sidebar-app/dist/` for private-app packaging |
 
 ## Documented Source Of Truth
 

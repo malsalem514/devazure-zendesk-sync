@@ -4,6 +4,12 @@
 **Status:** Research-backed recommendation  
 **Purpose:** Compare current integration products and platform patterns, identify battle-tested components we can reuse, and confirm the best implementation approach for the client project.
 
+> Historical note: this was the first research pass. It remains useful for original discovery context, but its old recommendation that the Zendesk sidebar app is optional and phase 2 is superseded by the current canonical docs:
+>
+> - [../proposals/ZENDESK-SIDEBAR-APP-IMPLEMENTATION-SPEC.md](../proposals/ZENDESK-SIDEBAR-APP-IMPLEMENTATION-SPEC.md)
+> - [../proposals/ZENDESK-ADO-V1-FIELD-DEFINITIONS.md](../proposals/ZENDESK-ADO-V1-FIELD-DEFINITIONS.md)
+> - [2026-04-17-zendesk-sidebar-app-sota-and-knowledge-gap-analysis.md](./2026-04-17-zendesk-sidebar-app-sota-and-knowledge-gap-analysis.md)
+
 ## 1. Research Question
 
 Before implementation, we wanted to answer:
@@ -31,8 +37,8 @@ The best-fit architecture for this project is:
 - **Dockerized standalone deployment**
 - **database-backed persistence using the client’s existing enterprise database where practical**
 - **a durable database-native queue/job orchestration pattern instead of hand-built retries**
-- **Zendesk fields plus private notes in v1**
-- **optional Zendesk sidebar app in phase 2**
+- **Zendesk fields plus private notes as storage and audit plumbing in v1**
+- **Zendesk sidebar app as the current approved phase-1 agent UX direction**
 
 Important tenant-specific override:
 
@@ -475,8 +481,8 @@ Recommended v1 stack:
 - **Official Zendesk webhook + official Azure DevOps service hook model**
 - **Oracle for sync ledger and audit when approved by the client DBA team**
 - **Oracle-native durable queue pattern where possible, else Oracle-backed worker tables**
-- **Zendesk fields plus private notes in v1**
-- **Optional sidebar app in phase 2**
+- **Zendesk fields plus private notes as storage and audit plumbing in v1**
+- **Sidebar app as the approved agent-facing v1 UX**
 
 Recommended v1 product behavior:
 
