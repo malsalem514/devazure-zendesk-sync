@@ -17,19 +17,15 @@ class I18n {
   }
 
   async loadTranslations(locale) {
-    const intentLocales = I18n.getRetries(locale)
+    const intentLocales = [...new Set(I18n.getRetries(locale))]
 
-    do {
-      try {
-        const importedTranslations = await this.tryRequire(intentLocales[0])
-        if (importedTranslations?.default) {
-          this.translations = importedTranslations.default
-          break
-        }
-      } catch {
-        intentLocales.shift()
+    for (const intentLocale of intentLocales) {
+      const importedTranslations = await this.tryRequire(intentLocale)
+      if (importedTranslations?.default) {
+        this.translations = importedTranslations.default
+        return
       }
-    } while (intentLocales.length)
+    }
   }
 
   t(key, context = {}) {
