@@ -92,6 +92,22 @@ test('buildSummaryFromSnapshot: tolerates trims empty/whitespace field values to
 });
 
 import { parseWorkItemReference, ticketToEvent, AppActionError } from '../dist/app-handlers.js';
+import { unwrapZendeskTicketResponse } from '../dist/lib/zendesk-api.js';
+
+test('unwrapZendeskTicketResponse: unwraps node-zendesk v6 response shape', () => {
+  const ticket = { id: 123, subject: 'Wrapped ticket', custom_fields: [] };
+  assert.deepEqual(
+    unwrapZendeskTicketResponse({ response: { statusCode: 200 }, result: { ticket } }),
+    ticket,
+  );
+});
+
+test('unwrapZendeskTicketResponse: accepts legacy and direct ticket shapes', () => {
+  const ticket = { id: 456, subject: 'Legacy ticket', custom_fields: [] };
+  assert.deepEqual(unwrapZendeskTicketResponse({ ticket }), ticket);
+  assert.deepEqual(unwrapZendeskTicketResponse(ticket), ticket);
+  assert.equal(unwrapZendeskTicketResponse(null), null);
+});
 
 test('parseWorkItemReference: numeric id', () => {
   assert.equal(parseWorkItemReference('79741'), 79741);

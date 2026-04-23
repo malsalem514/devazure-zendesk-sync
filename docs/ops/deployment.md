@@ -62,13 +62,13 @@ This creates `workitem.updated` and `workitem.created` subscriptions on the targ
 
 ## Tunnel guardian
 
-The Cloudflare quick tunnel at `https://<random>.trycloudflare.com` is ephemeral — if the `zendesk-ado-quicktunnel` container restarts, the public URL rotates and the Zendesk sidebar app's `backendBaseUrl` setting points at a dead hostname.
+The Cloudflare quick tunnel at `https://<random>.trycloudflare.com` is ephemeral — if the `zendesk-ado-quicktunnel` container restarts, the public URL rotates and the Zendesk sidebar app's `backendBaseUrl` / `backendHost` settings point at a dead hostname.
 
 `scripts/tunnel-guardian.sh` runs every 5 minutes under the host's `admin` crontab:
 
 1. Reads the current tunnel URL from `docker logs --tail 500 zendesk-ado-quicktunnel` (matches `https://*.trycloudflare.com`, most-recent wins).
-2. Reads the Zendesk installation's `backendBaseUrl` via `GET /api/v2/apps/installations/$ZAF_INSTALLATION_ID.json`.
-3. If they differ, `PUT`s the new URL with just `{settings:{backendBaseUrl:...}}`. The partial-settings PUT preserves the `appSharedSecret` (`secure: true`) — verified against the live endpoint with a signed JWT after the fault-injection test.
+2. Reads the Zendesk installation's `backendBaseUrl` and `backendHost` via `GET /api/v2/apps/installations/$ZAF_INSTALLATION_ID.json`.
+3. If they differ, `PUT`s the new URL and host with just `{settings:{backendBaseUrl:...,backendHost:...}}`. The partial-settings PUT preserves the `appSharedSecret` (`secure: true`) — verified against the live endpoint with a signed JWT after the fault-injection test.
 
 JSON logs append to `/srv/stacks/zendesk-ado-sync/tunnel-guardian.log`. Events: `url_unchanged`, `url_drift_detected`, `url_updated`, `tunnel_url_not_found` (exit 2 — container probably restarting), `zendesk_put_failed`.
 

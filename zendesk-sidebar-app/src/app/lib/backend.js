@@ -4,6 +4,8 @@
  * Calls go through Zendesk's proxy using `client.request({ secure: true })`:
  *   - The URL template below is substituted server-side with the app's secure
  *     settings (`backendBaseUrl`).
+ *   - `backendHost` mirrors the URL host in manifest `domainWhitelist` so
+ *     secure requests cannot be rerouted to an arbitrary domain.
  *   - Zendesk signs the request with `appSharedSecret` (HS256 JWT in
  *     Authorization: Bearer), which the backend verifies via
  *     src/lib/zaf-auth.ts -> verifyAuthorizationHeader.

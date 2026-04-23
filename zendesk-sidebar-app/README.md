@@ -7,7 +7,7 @@ This package is based on Zendesk's official React scaffold pattern and is intent
 - `Musa ADO Form Testing`
 - Zendesk form ID `50882600373907`
 
-## Current scaffold status
+## Current Status
 
 The package currently provides:
 
@@ -15,13 +15,11 @@ The package currently provides:
 - Zendesk Garden UI foundation
 - ticket sidebar rendering
 - pilot-form gating
-- read-only linked-item summary from current Zendesk custom fields
+- backend-backed linked-item summary with direct-field fallback
+- create ADO action via the integration backend
+- link existing ADO action via the integration backend
 
-The package does not yet provide:
-
-- create ADO action
-- link existing ADO action
-- backend app API integration
+Live backend validation and private-app package upload passed on 2026-04-23. Remaining pilot work is one visual smoke in Zendesk on the `Musa ADO Form Testing` form.
 
 ## Development
 

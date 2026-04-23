@@ -16,12 +16,21 @@
       }
     }
   },
+  "domainWhitelist": [
+    "{{setting.backendHost}}"
+  ],
   "parameters": [
     {
       "name": "backendBaseUrl",
       "type": "text",
       "required": true,
       "default": "https://zendesk-sync.jestais.com"
+    },
+    {
+      "name": "backendHost",
+      "type": "text",
+      "required": true,
+      "default": "zendesk-sync.jestais.com"
     },
     {
       "name": "appSharedSecret",

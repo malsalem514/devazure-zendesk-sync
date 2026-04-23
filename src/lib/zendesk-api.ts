@@ -50,12 +50,24 @@ export interface ZendeskTicketSnapshot {
   customFields: Record<number, unknown>;
 }
 
+export function unwrapZendeskTicketResponse(result: unknown): Record<string, unknown> | null {
+  if (!result || typeof result !== 'object') return null;
+  const response = result as Record<string, unknown>;
+  const nestedResult = response.result;
+  const ticket =
+    nestedResult && typeof nestedResult === 'object' && 'ticket' in nestedResult
+      ? (nestedResult as Record<string, unknown>).ticket
+      : response.ticket ?? nestedResult ?? response;
+
+  return ticket && typeof ticket === 'object'
+    ? ticket as Record<string, unknown>
+    : null;
+}
+
 export async function getTicketRaw(config: AppConfig, ticketId: number | string): Promise<Record<string, unknown> | null> {
   try {
     const result = (await getClient(config).tickets.show(Number(ticketId))) as any;
-    const ticket = result?.ticket ?? result;
-    if (!ticket || typeof ticket !== 'object') return null;
-    return ticket as Record<string, unknown>;
+    return unwrapZendeskTicketResponse(result);
   } catch (err: any) {
     if (err?.statusCode === 404 || err?.result?.statusCode === 404) return null;
     throw err;

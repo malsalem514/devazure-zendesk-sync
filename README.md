@@ -139,6 +139,7 @@ See [CLIENT-HANDOFF.md](./CLIENT-HANDOFF.md) for the delivery checklist.
 See [conductor/tracks.md](./conductor/tracks.md) for the live workstream list. At time of writing:
 
 - **OPS-002** — public URL go-live, blocked on IT (DNS + 443)
-- **APP-004** — Phase 6: comment/attachment sync, link-existing workflow
+- **APP-005** — one Zendesk visual smoke on the refreshed sidebar app
+- **APP-004** — Phase 6: comment/attachment sync and relink audit trail
 - **HARDEN-001** — operator endpoints, log rotation, kill-switch flag
 - **ROUTE-001** — business sign-off on 5 pending product families

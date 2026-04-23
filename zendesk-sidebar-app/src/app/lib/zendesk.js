@@ -17,6 +17,20 @@ async function getValue(client, path) {
   return result[path]
 }
 
+async function getValues(client, paths) {
+  return client.get(paths)
+}
+
+async function loadLinkedFields(client) {
+  const entries = Object.entries(CUSTOM_FIELD_PATHS)
+  const values = await getValues(
+    client,
+    entries.map(([, path]) => path)
+  )
+
+  return Object.fromEntries(entries.map(([key, path]) => [key, values[path]]))
+}
+
 function normalizeString(value) {
   if (value == null) {
     return null
@@ -70,10 +84,9 @@ export async function loadTicketSnapshot(client) {
   // avoid reading anything else (including the backend summary) on
   // non-pilot forms so the app has zero observable footprint outside its
   // pilot scope.
-  const [ticketId, formId] = await Promise.all([
-    getValue(client, 'ticket.id'),
-    getValue(client, 'ticket.form.id'),
-  ])
+  const baseValues = await getValues(client, ['ticket.id', 'ticket.form.id'])
+  const ticketId = baseValues['ticket.id']
+  const formId = baseValues['ticket.form.id']
   const numericTicketId = normalizeNumber(ticketId)
   const numericFormId = normalizeNumber(formId)
   const isPilotForm = numericFormId === PILOT_FORM_ID
@@ -83,23 +96,13 @@ export async function loadTicketSnapshot(client) {
       ticketId: numericTicketId,
       formId: numericFormId,
       subject: null,
-      requesterName: null,
       isPilotForm: false,
       summarySource: 'skipped',
       linked: null,
     }
   }
 
-  const [subject, requesterName] = await Promise.all([
-    getValue(client, 'ticket.subject'),
-    getValue(client, 'ticket.requester.name'),
-  ])
-
-  const linkedEntries = await Promise.all(
-    Object.entries(CUSTOM_FIELD_PATHS).map(async ([key, path]) => [key, await getValue(client, path)])
-  )
-  const linkedFields = Object.fromEntries(linkedEntries)
-  const fieldLinked = linkedFromFields(linkedFields)
+  const subject = await getValue(client, 'ticket.subject')
 
   // Try the backend summary endpoint for authoritative view model. Only
   // called on the pilot form — agents on other forms never generate
@@ -113,18 +116,15 @@ export async function loadTicketSnapshot(client) {
       summarySource = summary?.linked ? 'backend' : 'backend_empty'
     } catch (err) {
       summarySource = 'fields_fallback'
-      // eslint-disable-next-line no-console
-      console.warn('[sidebar] summary endpoint unavailable, falling back to field reads', err)
     }
   }
 
-  const linked = backendLinked ?? fieldLinked
+  const linked = backendLinked ?? linkedFromFields(await loadLinkedFields(client))
 
   return {
     ticketId: numericTicketId,
     formId: numericFormId,
     subject: normalizeString(subject),
-    requesterName: normalizeString(requesterName),
     isPilotForm: true,
     summarySource,
     linked,
@@ -133,7 +133,6 @@ export async function loadTicketSnapshot(client) {
 
 export function subscribeToTicketChanges(client, onChange) {
   const eventNames = [
-    'ticket.updated',
     'ticket.form.id.changed',
     'ticket.subject.changed',
     ...DISPLAYED_FIELD_IDS.map((fieldId) => `ticket.custom_field_${fieldId}.changed`)

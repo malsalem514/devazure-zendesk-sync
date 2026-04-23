@@ -234,13 +234,13 @@ export async function createAdoFromTicket(
 
   await execute(
     `INSERT INTO SYNC_LINK (ZENDESK_TICKET_ID, ADO_ORG, ADO_PROJECT, ADO_WORK_ITEM_ID, LINK_MODE, LAST_SYNC_SOURCE, LAST_SYNCED_AT)
-     VALUES (:ticketId, :org, :project, :workItemId, :mode, 'zendesk', SYSTIMESTAMP)`,
+     VALUES (:ticketId, :org, :project, :workItemId, :linkMode, 'zendesk', SYSTIMESTAMP)`,
     {
       ticketId: event.detail.id,
       org: config.devAzure.orgUrl,
       project: config.devAzure.project,
       workItemId: Number(result.id),
-      mode: plan.action === 'create' ? 'created' : 'linked',
+      linkMode: plan.action === 'create' ? 'created' : 'linked',
     },
   );
 

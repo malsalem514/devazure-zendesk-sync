@@ -12,6 +12,12 @@ export function ClientProvider({ children }) {
     }
 
     client.on('app.registered', handleRegistered)
+
+    return () => {
+      if (typeof client.off === 'function') {
+        client.off('app.registered', handleRegistered)
+      }
+    }
   }, [client])
 
   if (!appRegistered) {

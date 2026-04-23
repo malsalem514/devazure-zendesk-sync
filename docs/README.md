@@ -44,8 +44,9 @@ For the next coding session, read in this order:
 
 - **Phases 1-5 of the target v1 design are implemented in-repo.** The service has Oracle-backed persistence (6 tables), a durable `SELECT FOR UPDATE SKIP LOCKED` worker, the V1 routing matrix, bidirectional sync (Zendesk → ADO create/update + ADO → Zendesk status/sprint/ETA via service hook), a reconciler safety net, and a Docker deployment package.
 - **The stack is deployed** on `ubuntu-docker-host` in `SYNC_DRY_RUN=false` mode. Container healthy, Oracle pool + schema initialized, worker + reconciler crons running.
-- **The only gap to real end-to-end traffic** is the public URL (DNS + 443 port-forward — tracked in `conductor/tracks.md` as `OPS-002`).
-- **Phase 6 (comment/attachment sync, link-existing workflow)** is planned next.
+- **The stable public URL is still blocked** by DNS + 443 port-forward work tracked in `conductor/tracks.md` as `OPS-002`; the pilot currently depends on the Cloudflare quick tunnel plus tunnel guardian.
+- **The sidebar app create/link workflow is implemented, installed, live endpoint-validated, and package-refreshed**; remaining `APP-005` work is one visual Zendesk smoke on the `Musa ADO Form Testing` form.
+- **Phase 6 (comment/attachment sync and relink audit trail)** is planned next.
 - Use the canonical design docs above when implementation choices conflict with the starter README or historical charter.
 
 ## What Is Not In Docs

@@ -2,8 +2,9 @@
 # tunnel-guardian.sh
 #
 # Detects when the Cloudflare quick-tunnel public URL rotates and PUTs the new
-# URL into the Zendesk app installation's `backendBaseUrl` setting so the
-# sidebar keeps working.
+# URL into the Zendesk app installation's `backendBaseUrl` and `backendHost`
+# settings so the sidebar keeps working and the secure-setting domain whitelist
+# remains current.
 #
 # Runs on ubuntu-docker-host under cron. Reads the tunnel URL from the tunnel
 # container's Docker logs, compares to what Zendesk currently knows, and if
@@ -56,6 +57,8 @@ if [[ -z "$TUNNEL_URL" ]]; then
   log_warn "tunnel_url_not_found" ",\"container\":\"$CONTAINER\""
   exit 2
 fi
+TUNNEL_HOST="${TUNNEL_URL#https://}"
+TUNNEL_HOST="${TUNNEL_HOST%%/*}"
 
 # Fetch current Zendesk installation settings.
 ZD_JSON=$(curl -sS -u "$AUTH" \
@@ -64,18 +67,21 @@ ZD_JSON=$(curl -sS -u "$AUTH" \
 ZD_URL=$(printf '%s' "$ZD_JSON" \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("settings",{}).get("backendBaseUrl",""))' \
   2>/dev/null || true)
+ZD_HOST=$(printf '%s' "$ZD_JSON" \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("settings",{}).get("backendHost",""))' \
+  2>/dev/null || true)
 
 if [[ -z "$ZD_URL" ]]; then
   log_error "zendesk_get_failed" ",\"response\":\"$(printf %s "$ZD_JSON" | head -c 200 | tr -d '"\\')\""
   exit 1
 fi
 
-if [[ "$ZD_URL" == "$TUNNEL_URL" ]]; then
-  log_info "url_unchanged" ",\"url\":\"$TUNNEL_URL\""
+if [[ "$ZD_URL" == "$TUNNEL_URL" && "$ZD_HOST" == "$TUNNEL_HOST" ]]; then
+  log_info "url_unchanged" ",\"url\":\"$TUNNEL_URL\",\"host\":\"$TUNNEL_HOST\""
   exit 0
 fi
 
-log_info "url_drift_detected" ",\"tunnelUrl\":\"$TUNNEL_URL\",\"zendeskUrl\":\"$ZD_URL\""
+log_info "url_drift_detected" ",\"tunnelUrl\":\"$TUNNEL_URL\",\"zendeskUrl\":\"$ZD_URL\",\"tunnelHost\":\"$TUNNEL_HOST\",\"zendeskHost\":\"$ZD_HOST\""
 
 if [[ "$DRY_RUN" =~ ^(1|true|yes|on)$ ]]; then
   log_info "dry_run_skipped_update"
@@ -86,7 +92,7 @@ HTTP_CODE=$(curl -sS -o /tmp/tunnel-guardian.resp -w '%{http_code}' \
   -u "$AUTH" \
   -H "Content-Type: application/json" \
   -X PUT \
-  -d "{\"settings\":{\"backendBaseUrl\":\"$TUNNEL_URL\"}}" \
+  -d "{\"settings\":{\"backendBaseUrl\":\"$TUNNEL_URL\",\"backendHost\":\"$TUNNEL_HOST\"}}" \
   "$BASE/api/v2/apps/installations/$ZAF_INSTALLATION_ID.json")
 
 if [[ "$HTTP_CODE" != "200" ]]; then
@@ -94,4 +100,4 @@ if [[ "$HTTP_CODE" != "200" ]]; then
   exit 1
 fi
 
-log_info "url_updated" ",\"from\":\"$ZD_URL\",\"to\":\"$TUNNEL_URL\""
+log_info "url_updated" ",\"from\":\"$ZD_URL\",\"to\":\"$TUNNEL_URL\",\"host\":\"$TUNNEL_HOST\""

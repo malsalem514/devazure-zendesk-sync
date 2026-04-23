@@ -122,24 +122,27 @@ The approved v1 agent UX is a private Zendesk ticket sidebar app, not an always-
 
 Separate npm workspace built from Zendesk's official React + Vite scaffold (Garden UI). Driven by `npm run app:*` from the repo root.
 
-Current scaffold state (Milestone 1 of 5):
+Current sidebar state:
 - Loads in `ticket_sidebar`, reads ticket context via ZAF
-- Reads existing linked-ADO custom fields directly (`ADO Work Item ID`, URL, `ADO Status`, Sprint, ETA, Sync Health, Last Sync At, plus legacy `Dev Funnel #`)
+- Reads backend summary first, then falls back to linked-ADO custom fields directly (`ADO Work Item ID`, URL, `ADO Status`, Sprint, ETA, Sync Health, Last Sync At, plus legacy `Dev Funnel #`)
 - Hides itself when `ticket.form.id !== 50882600373907` (pilot form `Musa ADO Form Testing`)
 - Shows linked / empty / loading / error states
-- `Create new ADO` and `Link existing ADO` surfaces are scaffold-only until backend endpoints land
+- `Create new ADO` and `Link existing ADO` call the backend endpoints with loading and error states
 
 Pending (`APP-005`):
 - ~~Backend endpoints — all three landed and smoke-tested live~~: `GET .../summary`, `POST .../create`, `POST .../link`
 - ~~Sidebar wired to backend~~ — `fetchSummary` with direct-field fallback; `postCreate` / `postLink` drive ActionScaffold buttons (loading + error states)
-- Remaining: **install as a private app in the live Zendesk tenant**, set `backendBaseUrl` and `appSharedSecret` in the app's secure settings, validate on a real ticket in the `Musa ADO Form Testing` form
+- ~~Private app installed in the live Zendesk tenant~~ — app_id `1240317`, installation `50988210128019`, secure `backendBaseUrl` and `appSharedSecret` settings configured
+- Live endpoint validation completed on 2026-04-23: #39045 summary returned backend-linked ADO #79741; fresh Create linked #39220 → ADO #79922; fresh Link linked #39221 → ADO #79922
+- Refreshed private app package uploaded on 2026-04-23 to app `1240317`; installation `50988210128019` re-enabled and `backendBaseUrl` preserved
+- Remaining: do one visual smoke in the Zendesk sidebar on the `Musa ADO Form Testing` form
 
 Because the sidebar renders live ADO state (status, sprint, ETA, sync health), **Phase 4 reverse sync is a dependency of the sidebar UX**, not a replacement for it.
 
 ## What's pending
 
 - **OPS-002 (Phase 5 go-live):** DNS record `zendesk-sync.jestais.com` + TCP 443 port-forward from jestais firewall/NAT to `172.16.20.97`. Caddy site block staged on the host at `/tmp/caddy-zendesk-sync.snippet`. Once DNS resolves, `scripts/register-zendesk-webhook.mjs` + `scripts/register-ado-service-hook.mjs` complete the flow. The current pilot uses a temporary Cloudflare quick tunnel; its URL can rotate if the container restarts.
-- **APP-005 (sidebar app):** backend summary / create / link endpoints, ZAF JWT auth, tenant install, pilot-form gating validation.
+- **APP-005 (sidebar app):** one visual smoke in Zendesk on the pilot form.
 - **APP-004 (Phase 6, planned):** comment/attachment sync with integration marker and loop prevention, link-existing workflow, relink audit trail.
 - **HARDEN-001 (planned):** operator endpoints (`POST /internal/reconcile`, `GET /internal/failed-jobs`), log rotation, structured logs, kill-switch flag.
 - **ROUTE-001 (pending business approval):** 5 product families (`BI`, `Reports`, `Ecomm`, `Planning`, `Planning.net`) — `src/routing.ts` returns a low-confidence fallback for these.
@@ -183,3 +186,4 @@ Safety toggles: `SYNC_DRY_RUN=true` disables worker + reconciler crons (returns 
 - **Sandbox Zendesk form for pilot testing:** `Musa ADO Form Testing` (ID `50882600373907`, agents-only, 10 ADO fields attached)
 - **First live Zendesk → ADO round-trip:** Zendesk #39045 → ADO Bug #79741 (2026-04-17)
 - **First live ADO → Zendesk reverse-sync round-trip:** reconciler job `#601` cleared in 11 s with zero retries (2026-04-20)
+- **First live sidebar Create/Link validation:** Create #39220 → ADO #79922, Link #39221 → ADO #79922 (2026-04-23)

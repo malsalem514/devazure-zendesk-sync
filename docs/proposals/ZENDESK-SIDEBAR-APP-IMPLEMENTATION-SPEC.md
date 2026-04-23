@@ -1,8 +1,8 @@
 # Zendesk Sidebar App Implementation Spec
 
-**Status:** Approved implementation direction, with scaffold package created and build-validated on 2026-04-20  
+**Status:** Approved implementation direction; backend summary/create/link endpoints are implemented and live endpoint-validated as of 2026-04-23
 **Prepared On:** 2026-04-17  
-**Updated On:** 2026-04-20  
+**Updated On:** 2026-04-23
 **Purpose:** Define the concrete package layout, UI states, backend contract, rollout rules, and acceptance criteria for the private Zendesk sidebar app.
 
 ## 1. Decision Summary
@@ -95,26 +95,25 @@ zendesk-sidebar-app/
         TicketSideBar.jsx
 ```
 
-## 4. Current Scaffold Scope
+## 4. Current Implementation Scope
 
-The first scaffolded version is intentionally limited.
+The first scaffolded version has been expanded into the pilot implementation.
 
-It must:
+It now:
 
 - load in `ticket_sidebar`
 - register with ZAF
 - read ticket context from Zendesk
-- read the existing linked ADO values from Zendesk custom fields
+- call the backend summary endpoint for the authoritative linked-work-item model
+- fall back to existing linked ADO values from Zendesk custom fields if the backend summary is unavailable
 - hide itself when the ticket is not on the pilot form
 - show a useful linked-item summary when an ADO item already exists
 - show a useful empty state when no ADO item is linked
-- show the planned `Create new ADO` and `Link existing ADO` surface as scaffold-only UI
+- let agents create a new ADO work item through the backend
+- let agents link an existing ADO work item by numeric ID or URL through the backend
 
-It does not need to:
+It still does not need to:
 
-- create ADO work items yet
-- link existing ADO work items yet
-- call new backend endpoints yet
 - implement save hooks yet
 - implement search yet
 
@@ -262,13 +261,9 @@ Contains:
 - `Link existing ADO` input
 - `Link existing ADO` submit action
 
-In scaffold stage:
-
-- actions may be disabled or marked as not yet wired
-
 In functional v1:
 
-- actions should be enabled and immediate
+- actions are enabled and immediate
 
 ## 9. Action Semantics
 
@@ -288,11 +283,9 @@ Reason:
 
 `ticket.save` hooks remain optional for future validation or guardrails, not the primary action model.
 
-## 10. Planned Backend API Contract
+## 10. Backend API Contract
 
-These endpoints are planned for the app integration layer.
-
-They are not required for the scaffold-only milestone, but the implementation should build toward them.
+These endpoints are implemented for the app integration layer.
 
 ### 10.1 Get ticket ADO summary
 
@@ -391,13 +384,13 @@ This remains the preferred next implementation target because it:
 - works with Zendesk's documented request/JWT model
 - avoids turning the entire sidebar into a server-rendered app unnecessarily
 
-**Important:** This auth path is part of the implementation spec, but not yet wired in the scaffold package.
+**Implementation note:** This auth path is now wired and live-validated with signed backend requests.
 
 ## 12. Concrete Milestones
 
 ### Milestone 1. Scaffold package
 
-Done when:
+Done.
 
 - package exists under `zendesk-sidebar-app/`
 - it builds from the repo
@@ -408,7 +401,7 @@ Done when:
 
 ### Milestone 2. Summary endpoint integration
 
-Done when:
+Done.
 
 - app calls backend summary endpoint
 - backend returns normalized model
@@ -416,7 +409,7 @@ Done when:
 
 ### Milestone 3. Create action
 
-Done when:
+Done; live endpoint validation passed on 2026-04-23 with Zendesk #39220 -> ADO #79922.
 
 - `Create new ADO` calls backend
 - backend creates ADO item
@@ -425,7 +418,7 @@ Done when:
 
 ### Milestone 4. Link existing action
 
-Done when:
+Done; live endpoint validation passed on 2026-04-23 with Zendesk #39221 -> ADO #79922.
 
 - ID/URL paste works
 - backend resolves existing ADO item
@@ -436,12 +429,14 @@ Done when:
 
 Done when:
 
-- form gating confirmed
-- success/error messaging confirmed
-- action retries and duplicate guards confirmed
+- refreshed private-app package uploaded after copy/i18n changes
+- visual smoke completed in Zendesk on the pilot form
+- form gating confirmed in the installed app
+- success/error messaging confirmed in the installed app
+- action retries and duplicate guards confirmed in the installed app
 - rollout beyond pilot form explicitly approved
 
-## 13. Acceptance Criteria For The Scaffold Started In This Repo
+## 13. Acceptance Criteria For The Sidebar App Started In This Repo
 
 The initial code added in this task should satisfy all of the following:
 
@@ -451,7 +446,7 @@ The initial code added in this task should satisfy all of the following:
 - The app reads the real pilot form ID and linked field IDs already documented in this project.
 - The app self-hides outside `Musa ADO Form Testing`.
 - The app shows a linked-item summary if the ticket already has ADO values.
-- The app shows a clear scaffold notice that create/link actions are not wired yet.
+- The app actions call the backend and refresh to the linked state after create/link succeeds.
 
 ## 14. Files To Treat As Source Of Truth
 
@@ -466,8 +461,7 @@ The initial code added in this task should satisfy all of the following:
 
 ## 15. Immediate Next Build Step
 
-After the scaffold package lands, the next coding step should be:
+After the 2026-04-23 live endpoint validation, the next step should be:
 
-1. add the backend summary endpoint
-2. wire the sidebar app to that endpoint
-3. keep direct Zendesk field reads only as a fallback until the summary endpoint is stable
+1. do one visual smoke in Zendesk on the `Musa ADO Form Testing` form
+2. keep direct Zendesk field reads as a fallback until the stable public URL replaces the quick tunnel
