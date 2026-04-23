@@ -1,6 +1,10 @@
 /**
  * Zendesk custom field IDs for the ADO integration fields.
  * Created in jestaissupport.zendesk.com on 2026-04-16.
+ *
+ * V1 now maintains only `ado_work_item_id` as the necessary linkage field.
+ * The remaining IDs are legacy mirror fields that the backend clears on
+ * create/link/unlink so old stale values do not remain on tickets.
  */
 export const ZENDESK_FIELD_IDS: Record<string, number> = {
   dev_funnel_number: 50847215571859,

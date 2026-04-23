@@ -4,13 +4,10 @@ import { fetchSummary } from './backend.js'
 const DISPLAYED_FIELD_IDS = [
   50877199973651,
   50877235285395,
-  50877228156563,
-  50877235562259,
-  50877208001043,
-  50877235803539,
-  50877218501395,
-  50877208248211
+  50847215571859
 ]
+
+const FALLBACK_FIELD_KEYS = ['devFunnelNumber', 'adoWorkItemId', 'adoWorkItemUrl']
 
 async function getValue(client, path) {
   const result = await client.get(path)
@@ -22,7 +19,7 @@ async function getValues(client, paths) {
 }
 
 async function loadLinkedFields(client) {
-  const entries = Object.entries(CUSTOM_FIELD_PATHS)
+  const entries = FALLBACK_FIELD_KEYS.map((key) => [key, CUSTOM_FIELD_PATHS[key]])
   const values = await getValues(
     client,
     entries.map(([, path]) => path)
@@ -55,12 +52,6 @@ function linkedFromFields(linkedFields) {
   return {
     workItemId: normalizeNumber(linkedFields.adoWorkItemId),
     workItemUrl,
-    status: normalizeString(linkedFields.adoStatus),
-    statusDetail: normalizeString(linkedFields.adoStatusDetail),
-    sprint: normalizeString(linkedFields.adoSprint),
-    eta: normalizeString(linkedFields.adoEta),
-    syncHealth: normalizeString(linkedFields.adoSyncHealth),
-    lastSyncAt: normalizeString(linkedFields.adoLastSyncAt),
   }
 }
 

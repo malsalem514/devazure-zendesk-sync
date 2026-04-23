@@ -91,7 +91,7 @@ describe('loadTicketSnapshot', () => {
         'ticket.form.id': String(PILOT_FORM_ID),
         'ticket.subject': 'Link existing item',
         [CUSTOM_FIELD_PATHS.adoWorkItemId]: '79922',
-        [CUSTOM_FIELD_PATHS.adoStatus]: 'Active'
+        [CUSTOM_FIELD_PATHS.adoWorkItemUrl]: 'https://dev.azure.com/example/_workitems/edit/79922'
       },
       requestError: new Error('backend unavailable')
     })
@@ -101,7 +101,7 @@ describe('loadTicketSnapshot', () => {
     expect(snapshot.summarySource).toBe('fields_fallback')
     expect(snapshot.linked).toMatchObject({
       workItemId: 79922,
-      status: 'Active'
+      workItemUrl: 'https://dev.azure.com/example/_workitems/edit/79922'
     })
     expect(client.requestCalls).toHaveLength(1)
     expect(readCustomFieldsCalls(client)).toHaveLength(1)

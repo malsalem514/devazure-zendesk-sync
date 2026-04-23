@@ -8,7 +8,7 @@ import { useTicketSnapshot } from '../hooks/useTicketSnapshot.js'
 import { SIDEBAR_HEIGHT } from '../config.js'
 import WorkItemWorkspace from '../components/WorkItemWorkspace.jsx'
 import ActionScaffold from '../components/ActionScaffold.jsx'
-import { postCreate, postLink, postNote } from '../lib/backend.js'
+import { postCreate, postLink, postNote, postUnlink } from '../lib/backend.js'
 
 function hasLinkedItem(linked) {
   return Boolean(linked?.workItemId || linked?.workItemUrl)
@@ -42,6 +42,12 @@ export default function TicketSideBar() {
     },
     [client, snapshot?.ticketId, refresh],
   )
+
+  const handleUnlink = useCallback(async () => {
+    if (!snapshot?.ticketId) throw new Error('Ticket id not available')
+    await postUnlink(client, snapshot.ticketId)
+    await refresh()
+  }, [client, snapshot?.ticketId, refresh])
 
   useEffect(() => {
     client.invoke('resize', { width: '100%', height: SIDEBAR_HEIGHT })
@@ -116,11 +122,18 @@ export default function TicketSideBar() {
             refreshButton: i18n.t('ticket_sidebar.refresh_button'),
             refreshWorking: i18n.t('ticket_sidebar.refresh_button_working'),
             refreshSuccess: i18n.t('ticket_sidebar.refresh_success'),
-            copied: i18n.t('ticket_sidebar.copy_success')
+            copied: i18n.t('ticket_sidebar.copy_success'),
+            unlinkButton: i18n.t('ticket_sidebar.unlink_button'),
+            unlinkConfirm: i18n.t('ticket_sidebar.unlink_confirm'),
+            unlinkConfirmButton: i18n.t('ticket_sidebar.unlink_confirm_button'),
+            unlinkCancel: i18n.t('ticket_sidebar.unlink_cancel'),
+            unlinkWorking: i18n.t('ticket_sidebar.unlink_button_working'),
+            unlinkSuccess: i18n.t('ticket_sidebar.unlink_success')
           }}
           linked={linked}
           onAddNote={handleAddNote}
           onRefresh={refresh}
+          onUnlink={handleUnlink}
         />
       ) : (
         <EmptyStateCard>
@@ -129,22 +142,24 @@ export default function TicketSideBar() {
         </EmptyStateCard>
       )}
 
-      <ActionScaffold
-        linked={linked}
-        onCreate={handleCreate}
-        onLink={handleLink}
-        labels={{
-          title: i18n.t('ticket_sidebar.actions_title'),
-          create: i18n.t('ticket_sidebar.create_button'),
-          creatingLabel: i18n.t('ticket_sidebar.create_button_working') || 'Creating…',
-          linkLabel: i18n.t('ticket_sidebar.link_label'),
-          linkPlaceholder: i18n.t('ticket_sidebar.link_placeholder'),
-          link: i18n.t('ticket_sidebar.link_button'),
-          linkingLabel: i18n.t('ticket_sidebar.link_button_working') || 'Linking…',
-          alreadyLinkedHint: i18n.t('ticket_sidebar.already_linked_hint') || 'This ticket is already linked.',
-          hint: i18n.t('ticket_sidebar.actions_hint')
-        }}
-      />
+      {!hasLinkedItem(linked) ? (
+        <ActionScaffold
+          linked={linked}
+          onCreate={handleCreate}
+          onLink={handleLink}
+          labels={{
+            title: i18n.t('ticket_sidebar.actions_title'),
+            create: i18n.t('ticket_sidebar.create_button'),
+            creatingLabel: i18n.t('ticket_sidebar.create_button_working') || 'Creating...',
+            linkLabel: i18n.t('ticket_sidebar.link_label'),
+            linkPlaceholder: i18n.t('ticket_sidebar.link_placeholder'),
+            link: i18n.t('ticket_sidebar.link_button'),
+            linkingLabel: i18n.t('ticket_sidebar.link_button_working') || 'Linking...',
+            alreadyLinkedHint: i18n.t('ticket_sidebar.already_linked_hint') || 'This ticket is already linked.',
+            hint: i18n.t('ticket_sidebar.actions_hint')
+          }}
+        />
+      ) : null}
     </Shell>
   )
 }

@@ -8,6 +8,7 @@ import {
   createAdoFromTicket,
   getTicketSummary,
   linkExistingAdoWorkItem,
+  unlinkAdoFromTicket,
 } from './app-handlers.js';
 import { DevAzureClient } from './devazure-client.js';
 import { buildBasicAuthHeaderValue } from './lib/basic-auth.js';
@@ -144,7 +145,7 @@ export function createWebhookServer(config: AppConfig): Server {
       }
 
       // Sidebar app endpoints: all under /app/ado/tickets/:ticketId/*
-      const appRouteMatch = path.match(/^\/app\/ado\/tickets\/([^/]+)\/(summary|create|link|note)$/);
+      const appRouteMatch = path.match(/^\/app\/ado\/tickets\/([^/]+)\/(summary|create|link|unlink|note)$/);
       if (appRouteMatch) {
         const [, ticketIdRaw, action] = appRouteMatch;
         const secret = config.zendesk.appSharedSecret;
@@ -193,6 +194,13 @@ export function createWebhookServer(config: AppConfig): Server {
             const result = await linkExistingAdoWorkItem(config, ticketIdRaw, reference, devAzureClient);
             console.log(`[app] ${result.action} ticket=${ticketIdRaw} workItem=${result.summary.workItem?.id}`);
             json(response, result.action === 'linked' ? 201 : 200, { ok: true, ...result });
+            return;
+          }
+
+          if (request.method === 'POST' && action === 'unlink') {
+            const result = await unlinkAdoFromTicket(config, ticketIdRaw, devAzureClient);
+            console.log(`[app] ${result.action} ticket=${ticketIdRaw}`);
+            json(response, 200, { ok: true, ...result });
             return;
           }
 

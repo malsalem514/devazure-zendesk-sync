@@ -44,6 +44,43 @@ test('buildSummaryFromSnapshot: assembles view model from link + Zendesk fields'
   assert.equal(result.workItem?.lastSyncAt, '2026-04-20T15:22:11.000Z');
 });
 
+test('buildSummaryFromSnapshot: prefers live ADO projection over legacy Zendesk mirror fields', () => {
+  const link = {
+    ADO_ORG: 'jestaisinc',
+    ADO_PROJECT: 'VisionSuite',
+    ADO_WORK_ITEM_ID: 79741,
+    LAST_SYNCED_AT: new Date('2026-04-20T15:22:11.000Z'),
+    LAST_SYNC_SOURCE: 'ado',
+  };
+  const snapshot = {
+    id: 39045,
+    subject: 'Test',
+    customFields: {
+      50877228156563: 'ado_status_in_dev_backlog',
+      50877235562259: 'Stale backlog value',
+      50877208001043: 'Stale sprint',
+      50877235803539: '2026-05-01T00:00:00.000Z',
+    },
+  };
+  const projection = {
+    status: 'Dev In Progress',
+    statusDetail: 'In development in Sprint 43',
+    statusTag: 'ado_status_dev_in_progress',
+    sprint: 'Sprint 43',
+    sprintStart: '2026-05-04T00:00:00.000Z',
+    sprintEnd: '2026-05-15T00:00:00.000Z',
+    eta: '2026-05-15T00:00:00.000Z',
+    syncHealth: 'ado_sync_health_ok',
+  };
+
+  const result = buildSummaryFromSnapshot(39045, link, snapshot, ORG_URL, null, projection);
+  assert.equal(result.workItem?.status, 'Dev In Progress');
+  assert.equal(result.workItem?.statusDetail, 'In development in Sprint 43');
+  assert.equal(result.workItem?.statusTag, 'ado_status_dev_in_progress');
+  assert.equal(result.workItem?.sprint, 'Sprint 43');
+  assert.equal(result.workItem?.eta, '2026-05-15T00:00:00.000Z');
+});
+
 test('buildSummaryFromSnapshot: enriches sidebar model with ADO work item fields', () => {
   const link = {
     ADO_ORG: 'jestaisinc',

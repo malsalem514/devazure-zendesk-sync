@@ -48,6 +48,14 @@ export async function postLink(client, ticketId, workItemReference) {
   })
 }
 
+export async function postUnlink(client, ticketId) {
+  return appRequest(client, {
+    url: `${BASE_TEMPLATE}/${ticketId}/unlink`,
+    type: 'POST',
+    data: JSON.stringify({ source: 'zendesk_sidebar_app' }),
+  })
+}
+
 export async function postNote(client, ticketId, note) {
   return appRequest(client, {
     url: `${BASE_TEMPLATE}/${ticketId}/note`,

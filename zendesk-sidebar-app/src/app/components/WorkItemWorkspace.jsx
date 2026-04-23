@@ -66,6 +66,14 @@ function formatHealthTone(syncHealth) {
   return HEALTH_TONES[syncHealth.replace('ado_sync_health_', '')] || HEALTH_TONES.default
 }
 
+function formatHealthLabel(syncHealth) {
+  const normalized = syncHealth?.replace('ado_sync_health_', '')
+  if (normalized === 'ok') return 'OK'
+  if (normalized === 'warning') return 'Warning'
+  if (normalized === 'error') return 'Error'
+  return formatValue(syncHealth)
+}
+
 function SummaryRows({ linked }) {
   const rows = [
     ['Type', linked.workItemType],
@@ -126,7 +134,7 @@ function ActivityPanel({ linked, onCopyCustomerUpdate }) {
         </InfoRow>
         <InfoRow>
           <InfoLabel>Sync health</InfoLabel>
-          <InfoValue>{formatValue(linked.syncHealth)}</InfoValue>
+          <InfoValue>{formatHealthLabel(linked.syncHealth)}</InfoValue>
         </InfoRow>
       </Rows>
       {linked.customerUpdate ? (
@@ -144,10 +152,11 @@ function ActivityPanel({ linked, onCopyCustomerUpdate }) {
   )
 }
 
-function UpdatePanel({ linked, labels, onAddNote, onRefresh }) {
+function UpdatePanel({ linked, labels, onAddNote, onRefresh, onUnlink }) {
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(null)
   const [message, setMessage] = useState(null)
+  const [confirmingUnlink, setConfirmingUnlink] = useState(false)
 
   const submitNote = async () => {
     if (!note.trim()) return
@@ -170,6 +179,20 @@ function UpdatePanel({ linked, labels, onAddNote, onRefresh }) {
     try {
       await onRefresh()
       setMessage({ type: 'success', text: labels.refreshSuccess })
+    } catch (err) {
+      setMessage({ type: 'error', text: friendlyError(err) })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const unlink = async () => {
+    setBusy('unlink')
+    setMessage(null)
+    try {
+      await onUnlink()
+      setConfirmingUnlink(false)
+      setMessage({ type: 'success', text: labels.unlinkSuccess })
     } catch (err) {
       setMessage({ type: 'error', text: friendlyError(err) })
     } finally {
@@ -204,6 +227,32 @@ function UpdatePanel({ linked, labels, onAddNote, onRefresh }) {
           {labels.open}
         </OpenLink>
       ) : null}
+      <Divider />
+      {confirmingUnlink ? (
+        <ConfirmRow>
+          <ConfirmText>{labels.unlinkConfirm}</ConfirmText>
+          <ButtonRow>
+            <Button isDanger disabled={busy !== null} onClick={unlink}>
+              {busy === 'unlink' ? labels.unlinkWorking : labels.unlinkConfirmButton}
+            </Button>
+            <Button
+              disabled={busy !== null}
+              onClick={() => {
+                setConfirmingUnlink(false)
+                setMessage(null)
+              }}
+            >
+              {labels.unlinkCancel}
+            </Button>
+          </ButtonRow>
+        </ConfirmRow>
+      ) : (
+        <ButtonRow>
+          <Button isDanger disabled={busy !== null} onClick={() => setConfirmingUnlink(true)}>
+            {labels.unlinkButton}
+          </Button>
+        </ButtonRow>
+      )}
     </Panel>
   )
 }
@@ -217,7 +266,7 @@ function friendlyError(err) {
   return 'Action failed'
 }
 
-export default function WorkItemWorkspace({ linked, labels, onAddNote, onRefresh }) {
+export default function WorkItemWorkspace({ linked, labels, onAddNote, onRefresh, onUnlink }) {
   const [activeTab, setActiveTab] = useState('summary')
   const [copyState, setCopyState] = useState(null)
   const tone = formatHealthTone(linked.syncHealth)
@@ -247,12 +296,13 @@ export default function WorkItemWorkspace({ linked, labels, onAddNote, onRefresh
           labels={labels}
           onAddNote={onAddNote}
           onRefresh={onRefresh}
+          onUnlink={onUnlink}
         />
       )
     }
 
     return <SummaryRows linked={linked} />
-  }, [activeTab, labels, linked, onAddNote, onRefresh])
+  }, [activeTab, labels, linked, onAddNote, onRefresh, onUnlink])
 
   return (
     <Card>
@@ -452,6 +502,21 @@ const ButtonRow = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: ${(props) => props.theme.space.sm};
+`
+
+const Divider = styled.div`
+  height: 1px;
+  background: ${(props) => props.theme.palette.grey[300]};
+`
+
+const ConfirmRow = styled.div`
+  display: grid;
+  gap: ${(props) => props.theme.space.xs};
+`
+
+const ConfirmText = styled(SM)`
+  color: #8a1f17;
+  font-weight: 700;
 `
 
 const OpenLink = styled.a`

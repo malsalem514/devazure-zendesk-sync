@@ -111,9 +111,11 @@ It now:
 - show a useful empty state when no ADO item is linked
 - let agents create a new ADO work item through the backend
 - let agents link an existing ADO work item by numeric ID or URL through the backend
+- let agents unlink an ADO work item from the Zendesk ticket
 - show a compact ADO workspace when linked, organized into `Summary`, `Activity`, and `Update`
 - enrich the sidebar summary with live ADO work item fields such as title, type, state, owner, area, priority, severity, tags, and changed date
 - let agents add a support note to ADO history from Zendesk
+- maintain only minimal Zendesk linkage fields; ADO details are fetched live for the app instead of mirrored onto the ticket form
 
 It still does not need to:
 
@@ -176,7 +178,7 @@ Visible content:
 Condition:
 
 - app is on the pilot form
-- ticket already has linked ADO values in Zendesk
+- ticket has an active `SYNC_LINK` row or the minimal `ADO Work Item ID` fallback field
 
 Visible content:
 
@@ -187,7 +189,7 @@ Visible content:
 - sprint and ETA when available
 - sync health
 - last sync timestamp
-- scaffold action area
+- unlink action inside the `Update` tab, guarded by inline confirmation
 
 ### Error state
 
@@ -202,28 +204,35 @@ Behavior:
 
 ## 7. Current Field Contract Used By The App
 
-The scaffold should read the existing Zendesk custom fields directly.
+The app should use the backend summary as the authoritative view. The backend reads live ADO data and the `SYNC_LINK` table, then returns a normalized sidebar model.
+
+The only necessary Zendesk ADO custom field for v1 linkage is:
 
 Current field IDs:
 
 | Field | ID |
 | --- | --- |
-| `Dev Funnel #` | `50847215571859` |
 | `ADO Work Item ID` | `50877199973651` |
-| `ADO Work Item URL` | `50877235285395` |
-| `ADO Status` | `50877228156563` |
-| `ADO Status Detail` | `50877235562259` |
-| `ADO Sprint` | `50877208001043` |
-| `ADO ETA` | `50877235803539` |
-| `ADO Sync Health` | `50877218501395` |
-| `ADO Last Sync At` | `50877208248211` |
 
-Zendesk app access pattern:
+Legacy ADO mirror fields may still exist globally in Zendesk for backward compatibility and cleanup:
 
-- use `ticket.customField:custom_field_<fieldId>`
-- example: `ticket.customField:custom_field_50877199973651`
+- `Dev Funnel #`
+- `ADO Work Item URL`
+- `ADO Status`
+- `ADO Status Detail`
+- `ADO Sprint`
+- `ADO Sprint Start`
+- `ADO Sprint End`
+- `ADO ETA`
+- `ADO Sync Health`
+- `ADO Last Sync At`
 
-The scaffold should treat these fields as read-only.
+V1 behavior:
+
+- create/link writes `ADO Work Item ID` and clears legacy mirror fields
+- unlink clears all ADO linkage and legacy mirror fields
+- the app may use `ADO Work Item ID`, `ADO Work Item URL`, or `Dev Funnel #` only as a backend-unavailable fallback
+- no redundant ADO field block should be added to the visible Zendesk ticket form
 
 ## 8. App Information Architecture
 
@@ -293,6 +302,7 @@ Analyst-safe write actions:
 
 - add a support note to ADO history
 - refresh the ADO summary
+- unlink ADO from the Zendesk ticket, with confirmation
 - open in ADO as an escape hatch
 
 Field-changing actions require business approval before implementation:
@@ -330,7 +340,8 @@ That means:
 
 - clicking `Create new ADO` should immediately call the backend
 - clicking `Link existing ADO` should immediately call the backend
-- the backend should update Zendesk fields and notes after success
+- clicking `Unlink ADO` should require confirmation, then immediately call the backend
+- the backend should update the link record, minimal Zendesk field state, ADO tag state, and private notes after success
 
 Reason:
 
@@ -408,7 +419,8 @@ Initial v1 behavior:
 
 - derive creation data from the current Zendesk ticket and existing routing logic
 - create the work item
-- write back Zendesk linkage fields
+- write back only the minimal Zendesk linkage field (`ADO Work Item ID`)
+- clear legacy mirrored ADO fields from the ticket
 - write a private audit note
 
 ### 10.3 Link existing ADO item
@@ -432,21 +444,44 @@ Allowed values for `workItemReference`:
 Behavior:
 
 - resolve the work item
-- write back all linked ADO fields
-- populate `Dev Funnel #`
+- tag the ADO item with `zendesk:id:<ticketId>` for dedupe
+- create the active `SYNC_LINK` row
+- write back only the minimal Zendesk linkage field (`ADO Work Item ID`)
+- clear legacy mirrored ADO fields from the ticket
 - add private audit note
 
-### 10.4 Resync linked item
+### 10.4 Unlink ADO item
+
+`POST /app/ado/tickets/:ticketId/unlink`
+
+Request shape:
+
+```json
+{
+  "source": "zendesk_sidebar_app"
+}
+```
+
+Behavior:
+
+- validate that the Zendesk ticket has an active ADO link
+- remove the `zendesk:id:<ticketId>` tag from the linked ADO work item when present
+- deactivate the active `SYNC_LINK` row
+- clear `ADO Work Item ID` and all legacy mirrored ADO fields on the Zendesk ticket
+- add a private audit note
+- return an empty linked state so the app shows create/link actions again
+
+### 10.5 Resync linked item
 
 `POST /app/ado/tickets/:ticketId/resync`
 
 Purpose:
 
-- refresh Zendesk fields from the currently linked ADO item
+- refresh the link fingerprint/private audit state from the currently linked ADO item
 
 This can be a post-v1.0 action if needed.
 
-### 10.5 Add ADO note from Zendesk
+### 10.6 Add ADO note from Zendesk
 
 `POST /app/ado/tickets/:ticketId/note`
 
@@ -513,7 +548,7 @@ Done; live endpoint validation passed on 2026-04-23 with Zendesk #39220 -> ADO #
 
 - `Create new ADO` calls backend
 - backend creates ADO item
-- Zendesk fields and private note update correctly
+- minimal Zendesk linkage field and private note update correctly
 - app refreshes to linked state
 
 ### Milestone 4. Link existing action
@@ -522,10 +557,20 @@ Done; live endpoint validation passed on 2026-04-23 with Zendesk #39221 -> ADO #
 
 - ID/URL paste works
 - backend resolves existing ADO item
-- Zendesk fields and note update correctly
+- minimal Zendesk linkage field and note update correctly
 - app refreshes to linked state
 
-### Milestone 5. Pilot hardening
+### Milestone 5. Unlink action and lean field contract
+
+Done when:
+
+- linked tickets expose `Unlink ADO` in the Update tab with confirmation
+- backend removes the ADO `zendesk:id:<ticketId>` tag when present
+- active `SYNC_LINK` row is deactivated
+- `ADO Work Item ID` and legacy mirror fields are cleared from Zendesk
+- linked-ticket screen space is reserved for live ADO context, not create/link controls
+
+### Milestone 6. Pilot hardening
 
 Done when:
 
@@ -536,7 +581,7 @@ Done when:
 - action retries and duplicate guards confirmed in the installed app
 - rollout beyond pilot form explicitly approved
 
-### Milestone 6. Analyst ADO workspace
+### Milestone 7. Analyst ADO workspace
 
 Done when:
 
@@ -544,6 +589,7 @@ Done when:
 - summary endpoint returns live ADO title/type/state/owner/priority/severity/area/tags/change metadata
 - Activity tab includes current status, last sync, last ADO change, and copyable customer-ready update
 - Update tab can append an ADO history note from Zendesk
+- Update tab can unlink the ADO item from the Zendesk ticket
 - empty state keeps create/link actions focused and does not consume linked-ticket screen space
 
 ## 13. Acceptance Criteria For The Sidebar App Started In This Repo
@@ -553,10 +599,10 @@ The initial code added in this task should satisfy all of the following:
 - The Zendesk app lives in its own package and does not disturb the backend TypeScript build.
 - The app package is visibly based on the official Zendesk React scaffold shape.
 - The app uses Zendesk Garden, not ad hoc raw HTML buttons/forms alone.
-- The app reads the real pilot form ID and linked field IDs already documented in this project.
+- The app reads the real pilot form ID and the minimal linked field IDs already documented in this project.
 - The app self-hides outside `Musa ADO Form Testing`.
-- The app shows a linked-item summary if the ticket already has ADO values.
-- The app actions call the backend and refresh to the linked state after create/link succeeds.
+- The app shows a linked-item summary if the ticket has an active ADO link.
+- The app actions call the backend and refresh after create/link/unlink succeeds.
 
 ## 14. Files To Treat As Source Of Truth
 
@@ -573,7 +619,7 @@ The initial code added in this task should satisfy all of the following:
 
 After the 2026-04-23 live endpoint validation, the next step should be:
 
-1. ship the analyst ADO workspace slice behind the existing pilot-form gate
+1. smoke create/link/unlink behind the existing pilot-form gate
 2. smoke the Summary, Activity, and Update tabs on ticket `39045`
-3. keep direct Zendesk field reads as a fallback until the stable public URL replaces the quick tunnel
-4. decide which field-changing actions support is allowed to perform from Zendesk
+3. keep direct minimal Zendesk field reads as a fallback until the stable public URL replaces the quick tunnel
+4. decide which ADO field-changing actions support is allowed to perform from Zendesk

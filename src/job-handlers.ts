@@ -1,6 +1,5 @@
 import {
   ADO_STATUS_TAGS,
-  ADO_SYNC_HEALTH_TAGS,
   computeAdoFingerprint,
   deriveAdoStatus,
   fetchIterationMetadata,
@@ -8,6 +7,7 @@ import {
   hasDatedRange,
   type AdoStatusTag,
 } from './ado-status.js';
+import { buildLinkedAdoZendeskFields } from './ado-zendesk-fields.js';
 import { DevAzureClient } from './devazure-client.js';
 import { execute, query } from './lib/oracle.js';
 import { updateTicketWithNote, setFieldIdMap } from './lib/zendesk-api.js';
@@ -70,15 +70,7 @@ async function handleSyncZendeskToAdo(
   await updateTicketWithNote(
     config,
     ticketId,
-    {
-      devFunnelNumber: workItemUrl,
-      adoWorkItemId: Number(result.id),
-      adoWorkItemUrl: workItemUrl,
-      adoStatus: ADO_STATUS_TAGS.inDevBacklog,
-      adoStatusDetail: 'In backlog',
-      adoSyncHealth: ADO_SYNC_HEALTH_TAGS.ok,
-      adoLastSyncAt: new Date().toISOString(),
-    },
+    buildLinkedAdoZendeskFields(Number(result.id)),
     `[Synced by integration] Linked to Azure DevOps ${plan.workItemType} #${result.id}\n${workItemUrl}`,
   );
 
@@ -95,9 +87,9 @@ async function handleSyncZendeskToAdo(
 }
 
 /**
- * Reverse-sync handler: pull fresh state from ADO and reflect it on the linked
- * Zendesk ticket. Relies on a SHA-256 fingerprint stored on SYNC_LINK to skip
- * redundant Zendesk writes (design pillar 2 — cut feedback-loop traffic).
+ * Reverse-sync handler: pull fresh state from ADO, record a compact audit note,
+ * and update the link fingerprint. The sidebar reads ADO live, so Zendesk no
+ * longer stores mirrored ADO status/sprint/ETA fields.
  */
 async function handleSyncAdoStateToZendesk(
   _jobType: string,
@@ -178,16 +170,7 @@ async function handleSyncAdoStateToZendesk(
   await updateTicketWithNote(
     config,
     link.ZENDESK_TICKET_ID,
-    {
-      adoStatus: status,
-      adoStatusDetail: statusDetail,
-      adoSprint: sprintName,
-      adoSprintStart: toZendeskDate(sprintStart),
-      adoSprintEnd: toZendeskDate(sprintEnd),
-      adoEta: toZendeskDate(eta),
-      adoSyncHealth: ADO_SYNC_HEALTH_TAGS.ok,
-      adoLastSyncAt: new Date().toISOString(),
-    },
+    {},
     privateNote,
   );
 
@@ -218,13 +201,6 @@ async function handleSyncAdoStateToZendesk(
 
 function buildWorkItemUrl(config: AppConfig, workItemId: string | number): string {
   return `${config.devAzure.orgUrl.replace(/\/$/, '')}/${config.devAzure.project}/_workitems/edit/${workItemId}`;
-}
-
-function toZendeskDate(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10);
 }
 
 const STATUS_LABELS: Record<AdoStatusTag, string> = {
