@@ -6,9 +6,9 @@ import { useClient } from '../hooks/useClient.js'
 import { useI18n } from '../hooks/useI18n.js'
 import { useTicketSnapshot } from '../hooks/useTicketSnapshot.js'
 import { SIDEBAR_HEIGHT } from '../config.js'
-import LinkedWorkItemCard from '../components/LinkedWorkItemCard.jsx'
+import WorkItemWorkspace from '../components/WorkItemWorkspace.jsx'
 import ActionScaffold from '../components/ActionScaffold.jsx'
-import { postCreate, postLink } from '../lib/backend.js'
+import { postCreate, postLink, postNote } from '../lib/backend.js'
 
 function hasLinkedItem(linked) {
   return Boolean(linked?.workItemId || linked?.workItemUrl)
@@ -29,6 +29,15 @@ export default function TicketSideBar() {
     async (workItemReference) => {
       if (!snapshot?.ticketId) throw new Error('Ticket id not available')
       await postLink(client, snapshot.ticketId, workItemReference)
+      await refresh()
+    },
+    [client, snapshot?.ticketId, refresh],
+  )
+
+  const handleAddNote = useCallback(
+    async (note) => {
+      if (!snapshot?.ticketId) throw new Error('Ticket id not available')
+      await postNote(client, snapshot.ticketId, note)
       await refresh()
     },
     [client, snapshot?.ticketId, refresh],
@@ -87,24 +96,31 @@ export default function TicketSideBar() {
         </MetaList>
       </HeaderCard>
 
-      <NoticeCard>
-        <LG isBold>{i18n.t('ticket_sidebar.scaffold_title')}</LG>
-        <MD>{i18n.t('ticket_sidebar.scaffold_body')}</MD>
-      </NoticeCard>
-
       {hasLinkedItem(linked) ? (
-        <LinkedWorkItemCard
+        <WorkItemWorkspace
           labels={{
-            title: i18n.t('ticket_sidebar.linked_title'),
             open: i18n.t('ticket_sidebar.linked_open'),
-            status: i18n.t('ticket_sidebar.status_label'),
-            detail: i18n.t('ticket_sidebar.detail_label'),
-            sprint: i18n.t('ticket_sidebar.sprint_label'),
-            eta: i18n.t('ticket_sidebar.eta_label'),
-            syncHealth: i18n.t('ticket_sidebar.sync_health_label'),
-            lastSync: i18n.t('ticket_sidebar.last_sync_label')
+            tabsLabel: i18n.t('ticket_sidebar.tabs_label'),
+            tabs: {
+              summary: i18n.t('ticket_sidebar.tab_summary'),
+              activity: i18n.t('ticket_sidebar.tab_activity'),
+              update: i18n.t('ticket_sidebar.tab_update')
+            },
+            statusUnknown: i18n.t('ticket_sidebar.status_unknown'),
+            typeUnknown: i18n.t('ticket_sidebar.type_unknown'),
+            noteLabel: i18n.t('ticket_sidebar.note_label'),
+            notePlaceholder: i18n.t('ticket_sidebar.note_placeholder'),
+            noteButton: i18n.t('ticket_sidebar.note_button'),
+            noteWorking: i18n.t('ticket_sidebar.note_button_working'),
+            noteSuccess: i18n.t('ticket_sidebar.note_success'),
+            refreshButton: i18n.t('ticket_sidebar.refresh_button'),
+            refreshWorking: i18n.t('ticket_sidebar.refresh_button_working'),
+            refreshSuccess: i18n.t('ticket_sidebar.refresh_success'),
+            copied: i18n.t('ticket_sidebar.copy_success')
           }}
           linked={linked}
+          onAddNote={handleAddNote}
+          onRefresh={refresh}
         />
       ) : (
         <EmptyStateCard>
@@ -199,10 +215,6 @@ const MetaLabel = styled(SM)`
 const MetaValue = styled(MD)`
   color: #17363d;
   word-break: break-word;
-`
-
-const NoticeCard = styled(CardBase)`
-  background: #f5f8f8;
 `
 
 const EmptyStateCard = styled(CardBase)``

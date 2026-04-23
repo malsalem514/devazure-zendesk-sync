@@ -1,6 +1,6 @@
 # Zendesk Sidebar App Implementation Spec
 
-**Status:** Approved implementation direction; backend summary/create/link endpoints are implemented and live endpoint-validated as of 2026-04-23
+**Status:** Approved implementation direction; sidebar is moving from pilot scaffold to support analyst ADO workspace
 **Prepared On:** 2026-04-17  
 **Updated On:** 2026-04-23
 **Purpose:** Define the concrete package layout, UI states, backend contract, rollout rules, and acceptance criteria for the private Zendesk sidebar app.
@@ -111,11 +111,15 @@ It now:
 - show a useful empty state when no ADO item is linked
 - let agents create a new ADO work item through the backend
 - let agents link an existing ADO work item by numeric ID or URL through the backend
+- show a compact ADO workspace when linked, organized into `Summary`, `Activity`, and `Update`
+- enrich the sidebar summary with live ADO work item fields such as title, type, state, owner, area, priority, severity, tags, and changed date
+- let agents add a support note to ADO history from Zendesk
 
 It still does not need to:
 
 - implement save hooks yet
 - implement search yet
+- expose unrestricted ADO field editing
 
 ## 5. Pilot Form Rule
 
@@ -223,37 +227,90 @@ The scaffold should treat these fields as read-only.
 
 ## 8. App Information Architecture
 
-The v1 sidebar should use this structure.
+The v1 sidebar should work as a support analyst ADO workspace. The design goal is:
+
+- answer "what is engineering doing?" in under 3 seconds
+- let support add high-signal context to ADO without opening ADO
+- avoid turning the narrow Zendesk sidebar into a full ADO clone
+- keep destructive or workflow-changing ADO updates out of scope until field ownership is approved
+
+The layout should use compact first-screen information and progressive disclosure.
 
 ### Header block
 
 Always show:
 
 - app title
-- pilot badge or small context note
+- pilot badge or small context note during pilot
 - Zendesk ticket ID
 - ticket subject
 
-### Linked item block
+### Linked ADO workspace
 
-When linked, show:
+When linked, the first visible block should be a compact snapshot:
 
-- `ADO Work Item ID`
-- `Open in Azure DevOps`
-- `ADO Status`
-- `ADO Status Detail`
-- `ADO Sprint`
-- `ADO ETA`
-- `ADO Sync Health`
-- `ADO Last Sync At`
+- ADO work item ID
+- ADO title
+- support-friendly engineering status pill
+- owner / assigned-to
+- ETA
+- work item type
+
+Below the snapshot, use three tabs:
+
+#### Summary tab
+
+Dense read-only key fields:
+
+- ADO type
+- ADO state and reason
+- assigned owner
+- sprint / iteration
+- ETA
+- priority
+- severity
+- area path, compacted to the last useful segments
+- product/client/CRF when present
+- tags, capped visually
+
+#### Activity tab
+
+Support-facing activity:
+
+- last ADO changed date
+- last sync date/source
+- current status detail
+- sync health
+- customer-ready update text that can be copied into a Zendesk reply
+
+Future enhancement:
+
+- newest ADO discussion comments and recent state changes, once the ADO comments/updates API is wired.
+
+#### Update tab
+
+Analyst-safe write actions:
+
+- add a support note to ADO history
+- refresh the ADO summary
+- open in ADO as an escape hatch
+
+Field-changing actions require business approval before implementation:
+
+- priority/severity updates
+- customer impact fields
+- escalation flag
+- ETA overrides
 
 When not linked, show:
 
 - short empty-state message
+- `Create new ADO` action
+- `Link existing ADO` input/action
 
 ### Action block
 
-Always visible on the pilot form.
+Visible when the ticket is not linked.
 
 Contains:
 
@@ -305,12 +362,32 @@ Response shape:
   "workItem": {
     "id": 79741,
     "url": "https://dev.azure.com/jestaisinc/VisionSuite/_workitems/edit/79741",
+    "title": "[Zendesk #39045] customer-facing issue",
+    "workItemType": "Bug",
+    "state": "Active",
+    "reason": "Investigating",
+    "assignedTo": "Engineering Owner",
+    "areaPath": "VisionSuite\\Area\\Support",
+    "iterationPath": "VisionSuite\\Sprint 42",
+    "priority": 1,
+    "severity": "2 - High",
+    "product": "Core-Customer Service Portal",
+    "client": "Client Name",
+    "crf": "CRF-001",
+    "bucket": "Support",
+    "unplanned": true,
+    "tags": ["zendesk", "zendesk:id:39045"],
+    "createdAt": "2026-04-17T16:21:54.000Z",
+    "changedAt": "2026-04-20T15:22:11.000Z",
     "status": "In Dev Backlog",
     "statusDetail": "In backlog",
+    "statusTag": "ado_status_in_dev_backlog",
     "sprint": null,
     "eta": null,
     "syncHealth": "ok",
-    "lastSyncAt": "2026-04-17T16:21:54.000Z"
+    "lastSyncAt": "2026-04-17T16:21:54.000Z",
+    "lastSyncSource": "ado",
+    "customerUpdate": "Engineering status: In backlog. Owner: Engineering Owner."
   }
 }
 ```
@@ -368,6 +445,29 @@ Purpose:
 - refresh Zendesk fields from the currently linked ADO item
 
 This can be a post-v1.0 action if needed.
+
+### 10.5 Add ADO note from Zendesk
+
+`POST /app/ado/tickets/:ticketId/note`
+
+Request shape:
+
+```json
+{
+  "source": "zendesk_sidebar_app",
+  "note": "Customer confirmed this affects all stores after EOD."
+}
+```
+
+Behavior:
+
+- validate that the Zendesk ticket has an active ADO link
+- append the note to ADO `System.History`
+- include the Zendesk ticket reference in the ADO history entry
+- write an audit-log row
+- return the refreshed summary
+
+This is the first analyst-safe write action because it improves engineering context without changing ADO workflow ownership.
 
 ## 11. App To Backend Auth
 
@@ -436,6 +536,16 @@ Done when:
 - action retries and duplicate guards confirmed in the installed app
 - rollout beyond pilot form explicitly approved
 
+### Milestone 6. Analyst ADO workspace
+
+Done when:
+
+- linked state uses the compact ADO workspace layout
+- summary endpoint returns live ADO title/type/state/owner/priority/severity/area/tags/change metadata
+- Activity tab includes current status, last sync, last ADO change, and copyable customer-ready update
+- Update tab can append an ADO history note from Zendesk
+- empty state keeps create/link actions focused and does not consume linked-ticket screen space
+
 ## 13. Acceptance Criteria For The Sidebar App Started In This Repo
 
 The initial code added in this task should satisfy all of the following:
@@ -463,5 +573,7 @@ The initial code added in this task should satisfy all of the following:
 
 After the 2026-04-23 live endpoint validation, the next step should be:
 
-1. do one visual smoke in Zendesk on the `Musa ADO Form Testing` form
-2. keep direct Zendesk field reads as a fallback until the stable public URL replaces the quick tunnel
+1. ship the analyst ADO workspace slice behind the existing pilot-form gate
+2. smoke the Summary, Activity, and Update tabs on ticket `39045`
+3. keep direct Zendesk field reads as a fallback until the stable public URL replaces the quick tunnel
+4. decide which field-changing actions support is allowed to perform from Zendesk

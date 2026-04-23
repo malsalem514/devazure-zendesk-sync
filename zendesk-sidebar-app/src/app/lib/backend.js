@@ -47,3 +47,11 @@ export async function postLink(client, ticketId, workItemReference) {
     data: JSON.stringify({ source: 'zendesk_sidebar_app', workItemReference }),
   })
 }
+
+export async function postNote(client, ticketId, note) {
+  return appRequest(client, {
+    url: `${BASE_TEMPLATE}/${ticketId}/note`,
+    type: 'POST',
+    data: JSON.stringify({ source: 'zendesk_sidebar_app', note }),
+  })
+}

@@ -36,10 +36,22 @@ export interface AdoWorkItemSnapshot {
   id: string;
   rev: number;
   url: string;
+  workItemType: string | null;
+  reason: string | null;
   state: string | null;
+  areaPath: string | null;
   iterationPath: string | null;
   title: string | null;
   assignedTo: string | null;
+  priority: number | null;
+  severity: string | null;
+  createdAt: string | null;
+  changedAt: string | null;
+  product: string | null;
+  client: string | null;
+  crf: string | null;
+  bucket: string | null;
+  unplanned: boolean | null;
   tags: string[];
   fields: Record<string, unknown>;
 }
@@ -160,11 +172,23 @@ export class DevAzureClient {
     // Fetch only the fields the reverse-sync handler actually reads — ADO
     // work items carry dozens of custom fields we'd otherwise download+parse.
     const fieldList = [
+      'System.WorkItemType',
+      'System.Reason',
       'System.State',
+      'System.AreaPath',
       'System.IterationPath',
       'System.Title',
       'System.AssignedTo',
       'System.Tags',
+      'System.CreatedDate',
+      'System.ChangedDate',
+      'Microsoft.VSTS.Common.Priority',
+      'Microsoft.VSTS.Common.Severity',
+      'Custom.Product',
+      'Custom.Client',
+      'Custom.CRF',
+      'Custom.Bucket',
+      'Custom.Unplanned',
     ].join(',');
     try {
       const response = await this.request<WorkItemResponse>(
@@ -177,10 +201,22 @@ export class DevAzureClient {
         id: String(response.id),
         rev: response.rev,
         url: response.url,
-        state: (fields['System.State'] as string | undefined) ?? null,
-        iterationPath: (fields['System.IterationPath'] as string | undefined) ?? null,
-        title: (fields['System.Title'] as string | undefined) ?? null,
+        workItemType: fieldString(fields, 'System.WorkItemType'),
+        reason: fieldString(fields, 'System.Reason'),
+        state: fieldString(fields, 'System.State'),
+        areaPath: fieldString(fields, 'System.AreaPath'),
+        iterationPath: fieldString(fields, 'System.IterationPath'),
+        title: fieldString(fields, 'System.Title'),
         assignedTo: extractDisplayName(fields['System.AssignedTo']),
+        priority: fieldNumber(fields, 'Microsoft.VSTS.Common.Priority'),
+        severity: fieldString(fields, 'Microsoft.VSTS.Common.Severity'),
+        createdAt: fieldString(fields, 'System.CreatedDate'),
+        changedAt: fieldString(fields, 'System.ChangedDate'),
+        product: fieldString(fields, 'Custom.Product'),
+        client: fieldString(fields, 'Custom.Client'),
+        crf: fieldString(fields, 'Custom.CRF'),
+        bucket: fieldString(fields, 'Custom.Bucket'),
+        unplanned: fieldBoolean(fields, 'Custom.Unplanned'),
         tags: rawTags
           .split(';')
           .map((t) => t.trim())
@@ -227,6 +263,30 @@ export class DevAzureClient {
       throw err;
     }
   }
+}
+
+function fieldString(fields: Record<string, unknown>, refName: string): string | null {
+  const value = fields[refName];
+  if (value == null) return null;
+  const stringValue = String(value).trim();
+  return stringValue === '' ? null : stringValue;
+}
+
+function fieldNumber(fields: Record<string, unknown>, refName: string): number | null {
+  const value = fields[refName];
+  if (value == null || value === '') return null;
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function fieldBoolean(fields: Record<string, unknown>, refName: string): boolean | null {
+  const value = fields[refName];
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    if (value.toLowerCase() === 'true') return true;
+    if (value.toLowerCase() === 'false') return false;
+  }
+  return null;
 }
 
 function extractDisplayName(value: unknown): string | null {

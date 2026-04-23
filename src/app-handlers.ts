@@ -7,7 +7,7 @@ import {
   formatStatusDetail,
   hasDatedRange,
 } from './ado-status.js';
-import { DevAzureClient, DevAzureHttpError } from './devazure-client.js';
+import { DevAzureClient, DevAzureHttpError, type AdoWorkItemSnapshot } from './devazure-client.js';
 import { execute, query } from './lib/oracle.js';
 import { getTicket, getTicketRaw, updateTicketWithNote, type ZendeskTicketSnapshot } from './lib/zendesk-api.js';
 import { buildSyncPlan } from './sync-planner.js';
@@ -29,12 +29,32 @@ export interface SummaryResponse {
   workItem?: {
     id: number;
     url: string;
+    title: string | null;
+    workItemType: string | null;
+    state: string | null;
+    reason: string | null;
+    assignedTo: string | null;
+    areaPath: string | null;
+    iterationPath: string | null;
+    priority: number | null;
+    severity: string | null;
+    product: string | null;
+    client: string | null;
+    crf: string | null;
+    bucket: string | null;
+    unplanned: boolean | null;
+    tags: string[];
+    createdAt: string | null;
+    changedAt: string | null;
     status: string | null;
     statusDetail: string | null;
+    statusTag: string | null;
     sprint: string | null;
     eta: string | null;
     syncHealth: string | null;
     lastSyncAt: string | null;
+    lastSyncSource: string | null;
+    customerUpdate: string | null;
   };
 }
 
@@ -57,10 +77,50 @@ function coerceIso(value: unknown): string | null {
   return s === '' ? null : s;
 }
 
+function latestIso(...values: Array<unknown>): string | null {
+  const candidates = values
+    .map(coerceIso)
+    .filter((value): value is string => value != null)
+    .map((value) => ({ value, time: new Date(value).getTime() }))
+    .filter((entry) => Number.isFinite(entry.time))
+    .sort((a, b) => b.time - a.time);
+
+  return candidates[0]?.value ?? null;
+}
+
 function buildWorkItemUrl(orgUrl: string, project: string, workItemId: number | string): string {
   const base = orgUrl.replace(/\/$/, '');
   const encodedProject = encodeURIComponent(project);
   return `${base}/${encodedProject}/_workitems/edit/${workItemId}`;
+}
+
+function humanizeTag(value: string | null): string | null {
+  if (!value) return null;
+  return value
+    .replace(/^ado_status_/, '')
+    .replace(/^ado_sync_health_/, '')
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(' ');
+}
+
+function buildCustomerUpdate(workItem: {
+  status: string | null;
+  statusDetail: string | null;
+  assignedTo: string | null;
+  sprint: string | null;
+  eta: string | null;
+}): string | null {
+  const pieces: string[] = [];
+  const status = workItem.statusDetail ?? workItem.status;
+
+  if (status) pieces.push(`Engineering status: ${status}.`);
+  if (workItem.assignedTo) pieces.push(`Owner: ${workItem.assignedTo}.`);
+  if (workItem.sprint) pieces.push(`Planned sprint: ${workItem.sprint}.`);
+  if (workItem.eta) pieces.push(`Current ETA: ${workItem.eta.slice(0, 10)}.`);
+
+  return pieces.length > 0 ? pieces.join(' ') : null;
 }
 
 export function buildSummaryFromSnapshot(
@@ -68,6 +128,7 @@ export function buildSummaryFromSnapshot(
   link: SyncLinkRow | null,
   snapshot: ZendeskTicketSnapshot | null,
   orgUrl: string,
+  adoSnapshot: AdoWorkItemSnapshot | null = null,
 ): SummaryResponse {
   if (!link) {
     return { ok: true, ticketId, linked: false };
@@ -78,6 +139,15 @@ export function buildSummaryFromSnapshot(
 
   const urlFromZd = coerceString(byTag('ado_work_item_url'));
   const url = urlFromZd ?? buildWorkItemUrl(orgUrl, link.ADO_PROJECT, link.ADO_WORK_ITEM_ID);
+  const statusTag = coerceString(byTag('ado_status'));
+  const statusDetail = coerceString(byTag('ado_status_detail'));
+  const status = statusDetail ?? humanizeTag(statusTag);
+  const sprint = coerceString(byTag('ado_sprint'));
+  const eta = coerceIso(byTag('ado_eta'));
+  const syncHealth = coerceString(byTag('ado_sync_health'));
+  const lastSyncAt = latestIso(byTag('ado_last_sync_at'), link.LAST_SYNCED_AT);
+  const assignedTo = adoSnapshot?.assignedTo ?? null;
+  const customerUpdate = buildCustomerUpdate({ status, statusDetail, assignedTo, sprint, eta });
 
   return {
     ok: true,
@@ -86,12 +156,32 @@ export function buildSummaryFromSnapshot(
     workItem: {
       id: link.ADO_WORK_ITEM_ID,
       url,
-      status: coerceString(byTag('ado_status_detail')) ?? coerceString(byTag('ado_status')),
-      statusDetail: coerceString(byTag('ado_status_detail')),
-      sprint: coerceString(byTag('ado_sprint')),
-      eta: coerceIso(byTag('ado_eta')),
-      syncHealth: coerceString(byTag('ado_sync_health')),
-      lastSyncAt: coerceIso(byTag('ado_last_sync_at')) ?? coerceIso(link.LAST_SYNCED_AT),
+      title: adoSnapshot?.title ?? null,
+      workItemType: adoSnapshot?.workItemType ?? null,
+      state: adoSnapshot?.state ?? null,
+      reason: adoSnapshot?.reason ?? null,
+      assignedTo,
+      areaPath: adoSnapshot?.areaPath ?? null,
+      iterationPath: adoSnapshot?.iterationPath ?? null,
+      priority: adoSnapshot?.priority ?? null,
+      severity: adoSnapshot?.severity ?? null,
+      product: adoSnapshot?.product ?? null,
+      client: adoSnapshot?.client ?? null,
+      crf: adoSnapshot?.crf ?? null,
+      bucket: adoSnapshot?.bucket ?? null,
+      unplanned: adoSnapshot?.unplanned ?? null,
+      tags: adoSnapshot?.tags ?? [],
+      createdAt: adoSnapshot?.createdAt ?? null,
+      changedAt: adoSnapshot?.changedAt ?? null,
+      status,
+      statusDetail,
+      statusTag,
+      sprint,
+      eta,
+      syncHealth,
+      lastSyncAt,
+      lastSyncSource: coerceString(link.LAST_SYNC_SOURCE),
+      customerUpdate,
     },
   };
 }
@@ -116,11 +206,13 @@ async function loadActiveLink(ticketIdRaw: string): Promise<SyncLinkRow | null> 
 export async function getTicketSummary(
   config: AppConfig,
   ticketIdRaw: string,
+  ado: DevAzureClient,
 ): Promise<SummaryResponse> {
   const ticketId = validateTicketId(ticketIdRaw);
   const link = await loadActiveLink(ticketIdRaw);
   const snapshot = link ? await getTicket(config, ticketId) : null;
-  return buildSummaryFromSnapshot(ticketId, link, snapshot, config.devAzure.orgUrl);
+  const adoSnapshot = link ? await ado.getWorkItem(link.ADO_WORK_ITEM_ID) : null;
+  return buildSummaryFromSnapshot(ticketId, link, snapshot, config.devAzure.orgUrl, adoSnapshot);
 }
 
 // ------------------------------------------------------------------------
@@ -193,10 +285,12 @@ export function ticketToEvent(
 async function freshSummary(
   config: AppConfig,
   ticketIdRaw: string,
+  ado: DevAzureClient,
 ): Promise<SummaryResponse> {
   const link = await loadActiveLink(ticketIdRaw);
   const snapshot = await getTicket(config, Number(ticketIdRaw));
-  return buildSummaryFromSnapshot(Number(ticketIdRaw), link, snapshot, config.devAzure.orgUrl);
+  const adoSnapshot = link ? await ado.getWorkItem(link.ADO_WORK_ITEM_ID) : null;
+  return buildSummaryFromSnapshot(Number(ticketIdRaw), link, snapshot, config.devAzure.orgUrl, adoSnapshot);
 }
 
 export interface CreateResult {
@@ -213,7 +307,7 @@ export async function createAdoFromTicket(
 
   const existingLink = await loadActiveLink(ticketIdRaw);
   if (existingLink) {
-    return { action: 'already_linked', summary: await freshSummary(config, ticketIdRaw) };
+    return { action: 'already_linked', summary: await freshSummary(config, ticketIdRaw, ado) };
   }
 
   const fullTicket = await getTicketRaw(config, ticketId);
@@ -271,7 +365,7 @@ export async function createAdoFromTicket(
     },
   );
 
-  return { action: 'created', summary: await freshSummary(config, ticketIdRaw) };
+  return { action: 'created', summary: await freshSummary(config, ticketIdRaw, ado) };
 }
 
 // ------------------------------------------------------------------------
@@ -313,7 +407,7 @@ export async function linkExistingAdoWorkItem(
 
   const existingLink = await loadActiveLink(ticketIdRaw);
   if (existingLink) {
-    return { action: 'already_linked', summary: await freshSummary(config, ticketIdRaw) };
+    return { action: 'already_linked', summary: await freshSummary(config, ticketIdRaw, ado) };
   }
 
   let snapshot;
@@ -414,5 +508,84 @@ export async function linkExistingAdoWorkItem(
     },
   );
 
-  return { action: 'linked', summary: await freshSummary(config, ticketIdRaw) };
+  return { action: 'linked', summary: await freshSummary(config, ticketIdRaw, ado) };
+}
+
+export interface NoteResult {
+  action: 'noted';
+  summary: SummaryResponse;
+}
+
+function escapeHistory(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
+function buildAdoHistoryNote(ticketId: number, note: string, zendeskBaseUrl: string | undefined): string {
+  const ticketUrl = zendeskBaseUrl ? `${zendeskBaseUrl.replace(/\/$/, '')}/agent/tickets/${ticketId}` : null;
+  const lines = [
+    `<strong>Support note from Zendesk #${ticketId}</strong>`,
+    escapeHistory(note).replaceAll('\n', '<br />'),
+  ];
+
+  if (ticketUrl) {
+    lines.push(`<a href="${escapeHistory(ticketUrl)}">Open Zendesk ticket</a>`);
+  }
+
+  return lines.join('<br />');
+}
+
+export async function addAdoNoteFromTicket(
+  config: AppConfig,
+  ticketIdRaw: string,
+  note: string,
+  ado: DevAzureClient,
+): Promise<NoteResult> {
+  const ticketId = validateTicketId(ticketIdRaw);
+  const normalizedNote = note.trim();
+  if (!normalizedNote) {
+    throw new AppActionError('Note cannot be empty', 400);
+  }
+  if (normalizedNote.length > 4000) {
+    throw new AppActionError('Note must be 4000 characters or fewer', 400);
+  }
+
+  const link = await loadActiveLink(ticketIdRaw);
+  if (!link) {
+    throw new AppActionError(`Ticket #${ticketId} is not linked to an ADO work item`, 409);
+  }
+
+  const snapshot = await ado.getWorkItem(link.ADO_WORK_ITEM_ID);
+  if (!snapshot) {
+    throw new AppActionError(`ADO work item #${link.ADO_WORK_ITEM_ID} not found`, 404);
+  }
+
+  await ado.updateWorkItem(String(link.ADO_WORK_ITEM_ID), [
+    { op: 'test', path: '/rev', value: snapshot.rev },
+    { op: 'add', path: '/fields/System.History', value: buildAdoHistoryNote(ticketId, normalizedNote, config.zendesk.baseUrl) },
+  ]);
+
+  await execute(
+    `UPDATE SYNC_LINK
+        SET LAST_SYNC_SOURCE = 'zendesk',
+            LAST_SYNCED_AT = SYSTIMESTAMP,
+            UPDATED_AT = SYSTIMESTAMP
+      WHERE ZENDESK_TICKET_ID = :ticketId AND IS_ACTIVE = 1`,
+    { ticketId: String(ticketId) },
+  );
+
+  await execute(
+    `INSERT INTO AUDIT_LOG (ACTION_TYPE, ACTOR_TYPE, SOURCE_SYSTEM, TARGET_SYSTEM, ZENDESK_TICKET_ID, ADO_WORK_ITEM_ID, SUMMARY)
+     VALUES ('sidebar_ado_note', 'agent', 'zendesk', 'ado', :ticketId, :workItemId, :summary)`,
+    {
+      ticketId: String(ticketId),
+      workItemId: String(link.ADO_WORK_ITEM_ID),
+      summary: `Agent added ADO note from Zendesk ticket #${ticketId}`,
+    },
+  );
+
+  return { action: 'noted', summary: await freshSummary(config, ticketIdRaw, ado) };
 }

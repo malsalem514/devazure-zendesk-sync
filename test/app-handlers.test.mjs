@@ -44,6 +44,59 @@ test('buildSummaryFromSnapshot: assembles view model from link + Zendesk fields'
   assert.equal(result.workItem?.lastSyncAt, '2026-04-20T15:22:11.000Z');
 });
 
+test('buildSummaryFromSnapshot: enriches sidebar model with ADO work item fields', () => {
+  const link = {
+    ADO_ORG: 'jestaisinc',
+    ADO_PROJECT: 'VisionSuite',
+    ADO_WORK_ITEM_ID: 79741,
+    LAST_SYNCED_AT: new Date('2026-04-20T15:22:11.000Z'),
+    LAST_SYNC_SOURCE: 'zendesk',
+  };
+  const zendeskSnapshot = {
+    id: 39045,
+    subject: 'Test',
+    customFields: {
+      50877235562259: 'Scheduled for Sprint 42',
+      50877208001043: 'Sprint 42',
+      50877235803539: '2026-05-01T00:00:00.000Z',
+    },
+  };
+  const adoSnapshot = {
+    id: '79741',
+    rev: 5,
+    url: 'https://dev.azure.com/jestaisinc/VisionSuite/_apis/wit/workItems/79741',
+    workItemType: 'Bug',
+    reason: 'Investigating',
+    state: 'Active',
+    areaPath: 'VisionSuite\\Area\\Support',
+    iterationPath: 'VisionSuite\\Sprint 42',
+    title: '[Zendesk #39045] Test',
+    assignedTo: 'Sam Engineer',
+    priority: 1,
+    severity: '2 - High',
+    createdAt: '2026-04-17T16:21:54.000Z',
+    changedAt: '2026-04-20T15:22:11.000Z',
+    product: 'Core-Customer Service Portal',
+    client: 'Acme',
+    crf: 'CRF-001',
+    bucket: 'Support',
+    unplanned: true,
+    tags: ['zendesk', 'zendesk:id:39045'],
+    fields: {},
+  };
+
+  const result = buildSummaryFromSnapshot(39045, link, zendeskSnapshot, ORG_URL, adoSnapshot);
+  assert.equal(result.workItem?.title, '[Zendesk #39045] Test');
+  assert.equal(result.workItem?.workItemType, 'Bug');
+  assert.equal(result.workItem?.state, 'Active');
+  assert.equal(result.workItem?.reason, 'Investigating');
+  assert.equal(result.workItem?.assignedTo, 'Sam Engineer');
+  assert.equal(result.workItem?.priority, 1);
+  assert.equal(result.workItem?.severity, '2 - High');
+  assert.equal(result.workItem?.lastSyncSource, 'zendesk');
+  assert.match(result.workItem?.customerUpdate ?? '', /Owner: Sam Engineer/);
+});
+
 test('buildSummaryFromSnapshot: synthesizes URL when Zendesk has no URL field', () => {
   const link = {
     ADO_ORG: 'jestaisinc',
@@ -67,6 +120,25 @@ test('buildSummaryFromSnapshot: falls back to link.LAST_SYNCED_AT when field is 
   const snapshot = { id: 1, subject: null, customFields: {} };
   const result = buildSummaryFromSnapshot(1, link, snapshot, ORG_URL);
   assert.equal(result.workItem?.lastSyncAt, '2026-04-20T10:00:00.000Z');
+});
+
+test('buildSummaryFromSnapshot: uses newest sync timestamp when link is newer than Zendesk field', () => {
+  const link = {
+    ADO_ORG: 'jestaisinc',
+    ADO_PROJECT: 'VisionSuite',
+    ADO_WORK_ITEM_ID: 1,
+    LAST_SYNCED_AT: new Date('2026-04-21T10:00:00.000Z'),
+    LAST_SYNC_SOURCE: 'zendesk',
+  };
+  const snapshot = {
+    id: 1,
+    subject: null,
+    customFields: {
+      50877208248211: '2026-04-20T10:00:00.000Z',
+    },
+  };
+  const result = buildSummaryFromSnapshot(1, link, snapshot, ORG_URL);
+  assert.equal(result.workItem?.lastSyncAt, '2026-04-21T10:00:00.000Z');
 });
 
 test('buildSummaryFromSnapshot: tolerates trims empty/whitespace field values to null', () => {

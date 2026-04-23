@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AppConfig } from './types.js';
 import { parseAdoEvent } from './ado-event-parser.js';
 import {
+  addAdoNoteFromTicket,
   AppActionError,
   createAdoFromTicket,
   getTicketSummary,
@@ -143,7 +144,7 @@ export function createWebhookServer(config: AppConfig): Server {
       }
 
       // Sidebar app endpoints: all under /app/ado/tickets/:ticketId/*
-      const appRouteMatch = path.match(/^\/app\/ado\/tickets\/([^/]+)\/(summary|create|link)$/);
+      const appRouteMatch = path.match(/^\/app\/ado\/tickets\/([^/]+)\/(summary|create|link|note)$/);
       if (appRouteMatch) {
         const [, ticketIdRaw, action] = appRouteMatch;
         const secret = config.zendesk.appSharedSecret;
@@ -165,7 +166,7 @@ export function createWebhookServer(config: AppConfig): Server {
 
         try {
           if (request.method === 'GET' && action === 'summary') {
-            const summary = await getTicketSummary(config, ticketIdRaw);
+            const summary = await getTicketSummary(config, ticketIdRaw, devAzureClient);
             json(response, 200, summary);
             return;
           }
@@ -192,6 +193,24 @@ export function createWebhookServer(config: AppConfig): Server {
             const result = await linkExistingAdoWorkItem(config, ticketIdRaw, reference, devAzureClient);
             console.log(`[app] ${result.action} ticket=${ticketIdRaw} workItem=${result.summary.workItem?.id}`);
             json(response, result.action === 'linked' ? 201 : 200, { ok: true, ...result });
+            return;
+          }
+
+          if (request.method === 'POST' && action === 'note') {
+            const rawBody = await readRequestBody(request);
+            let body: unknown;
+            try {
+              body = JSON.parse(rawBody || '{}');
+            } catch {
+              throw new HttpError('Invalid JSON body', 400);
+            }
+            const note = (body as { note?: unknown })?.note;
+            if (typeof note !== 'string' || note.trim() === '') {
+              throw new HttpError('Body must include note', 400);
+            }
+            const result = await addAdoNoteFromTicket(config, ticketIdRaw, note, devAzureClient);
+            console.log(`[app] ${result.action} ticket=${ticketIdRaw} workItem=${result.summary.workItem?.id}`);
+            json(response, 200, { ok: true, ...result });
             return;
           }
 
