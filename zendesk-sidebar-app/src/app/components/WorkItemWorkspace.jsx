@@ -1,10 +1,18 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import styled from 'styled-components'
 import { Button } from '@zendeskgarden/react-buttons'
 import { Field, Label, Message, Textarea } from '@zendeskgarden/react-forms'
 import { LG, MD, SM } from '@zendeskgarden/react-typography'
 
 const TABS = ['summary', 'activity', 'update']
+
+function tabId(tab) {
+  return `ado-workspace-tab-${tab}`
+}
+
+function panelId(tab) {
+  return `ado-workspace-panel-${tab}`
+}
 
 const HEALTH_TONES = {
   ok: {
@@ -191,11 +199,8 @@ function UpdatePanel({ linked, labels, onAddNote, onRefresh, onUnlink }) {
     setMessage(null)
     try {
       await onUnlink()
-      setConfirmingUnlink(false)
-      setMessage({ type: 'success', text: labels.unlinkSuccess })
     } catch (err) {
       setMessage({ type: 'error', text: friendlyError(err) })
-    } finally {
       setBusy(null)
     }
   }
@@ -269,11 +274,37 @@ function friendlyError(err) {
 export default function WorkItemWorkspace({ linked, labels, onAddNote, onRefresh, onUnlink }) {
   const [activeTab, setActiveTab] = useState('summary')
   const [copyState, setCopyState] = useState(null)
+  const tabRefs = useRef({})
   const tone = formatHealthTone(linked.syncHealth)
 
   const title = linked.title || `ADO #${linked.workItemId}`
   const owner = linked.assignedTo || 'Unassigned'
   const eta = linked.eta ? formatDate(linked.eta) : 'No ETA'
+
+  const focusTab = (tab) => {
+    setActiveTab(tab)
+    window.requestAnimationFrame(() => {
+      tabRefs.current[tab]?.focus()
+    })
+  }
+
+  const handleTabKeyDown = (event, index) => {
+    let nextIndex = null
+    if (event.key === 'ArrowRight') {
+      nextIndex = (index + 1) % TABS.length
+    } else if (event.key === 'ArrowLeft') {
+      nextIndex = (index - 1 + TABS.length) % TABS.length
+    } else if (event.key === 'Home') {
+      nextIndex = 0
+    } else if (event.key === 'End') {
+      nextIndex = TABS.length - 1
+    }
+
+    if (nextIndex != null) {
+      event.preventDefault()
+      focusTab(TABS[nextIndex])
+    }
+  }
 
   const tabContent = useMemo(() => {
     if (activeTab === 'activity') {
@@ -320,20 +351,34 @@ export default function WorkItemWorkspace({ linked, labels, onAddNote, onRefresh
       </MetaStrip>
 
       <Tabs role="tablist" aria-label={labels.tabsLabel}>
-        {TABS.map((tab) => (
+        {TABS.map((tab, index) => (
           <TabButton
             key={tab}
+            id={tabId(tab)}
+            ref={(element) => {
+              tabRefs.current[tab] = element
+            }}
             role="tab"
             aria-selected={activeTab === tab}
+            aria-controls={panelId(tab)}
+            tabIndex={activeTab === tab ? 0 : -1}
             $active={activeTab === tab}
             onClick={() => setActiveTab(tab)}
+            onKeyDown={(event) => handleTabKeyDown(event, index)}
           >
             {labels.tabs[tab]}
           </TabButton>
         ))}
       </Tabs>
 
-      {tabContent}
+      <TabPanel
+        id={panelId(activeTab)}
+        role="tabpanel"
+        aria-labelledby={tabId(activeTab)}
+        tabIndex={0}
+      >
+        {tabContent}
+      </TabPanel>
       {copyState ? <Message validation="success">{copyState}</Message> : null}
     </Card>
   )
@@ -424,8 +469,22 @@ const TabButton = styled.button`
   font-size: 0.8125rem;
   font-weight: 700;
 
+  &:focus-visible {
+    outline: 2px solid #2f6fed;
+    outline-offset: -3px;
+  }
+
   &:last-child {
     border-right: 0;
+  }
+`
+
+const TabPanel = styled.div`
+  min-width: 0;
+
+  &:focus-visible {
+    outline: 2px solid #2f6fed;
+    outline-offset: 2px;
   }
 `
 

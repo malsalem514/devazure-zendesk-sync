@@ -14,7 +14,7 @@ import { updateTicketWithNote, setFieldIdMap } from './lib/zendesk-api.js';
 import { buildSyncPlan } from './sync-planner.js';
 import { parseZendeskTicketEvent } from './zendesk-event-parser.js';
 import { ZENDESK_FIELD_IDS } from './zendesk-field-ids.js';
-import type { AppConfig } from './types.js';
+import type { AppConfig, ExistingWorkItem, ZendeskTicketEvent } from './types.js';
 import { JOB_TYPES, type JobHandler } from './worker.js';
 
 setFieldIdMap(ZENDESK_FIELD_IDS);
@@ -28,6 +28,28 @@ function getAdoClient(config: AppConfig): DevAzureClient {
   return cachedAdoClient;
 }
 
+async function findExistingWorkItemForTicket(
+  event: ZendeskTicketEvent,
+  devAzureClient: DevAzureClient,
+): Promise<ExistingWorkItem | null> {
+  const linkRows = await query<{ ADO_WORK_ITEM_ID: number }>(
+    `SELECT ADO_WORK_ITEM_ID
+       FROM SYNC_LINK
+      WHERE ZENDESK_TICKET_ID = :ticketId AND IS_ACTIVE = 1`,
+    { ticketId: event.detail.id },
+  );
+
+  const linkedWorkItemId = linkRows[0]?.ADO_WORK_ITEM_ID;
+  if (linkedWorkItemId != null) {
+    const linkedSnapshot = await devAzureClient.getWorkItem(linkedWorkItemId);
+    if (linkedSnapshot) {
+      return { id: String(linkedWorkItemId), rev: linkedSnapshot.rev };
+    }
+  }
+
+  return devAzureClient.findWorkItemByZendeskTicketId(event.detail.id);
+}
+
 async function handleSyncZendeskToAdo(
   _jobType: string,
   payload: unknown,
@@ -38,7 +60,7 @@ async function handleSyncZendeskToAdo(
   const event = parseZendeskTicketEvent(rawBody);
   const devAzureClient = getAdoClient(config);
 
-  const existingWorkItem = await devAzureClient.findWorkItemByZendeskTicketId(event.detail.id);
+  const existingWorkItem = await findExistingWorkItemForTicket(event, devAzureClient);
   const plan = buildSyncPlan(event, config, existingWorkItem);
 
   if (plan.action === 'noop') {

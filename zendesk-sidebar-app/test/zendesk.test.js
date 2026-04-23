@@ -106,4 +106,28 @@ describe('loadTicketSnapshot', () => {
     expect(client.requestCalls).toHaveLength(1)
     expect(readCustomFieldsCalls(client)).toHaveLength(1)
   })
+
+  it('does not use stale field fallback when backend says no active link exists', async () => {
+    const client = createClient({
+      values: {
+        'ticket.id': '39222',
+        'ticket.form.id': String(PILOT_FORM_ID),
+        'ticket.subject': 'Recently unlinked item',
+        [CUSTOM_FIELD_PATHS.adoWorkItemId]: '79922',
+        [CUSTOM_FIELD_PATHS.adoWorkItemUrl]: 'https://dev.azure.com/example/_workitems/edit/79922'
+      },
+      requestResponse: {
+        ok: true,
+        ticketId: 39222,
+        linked: false
+      }
+    })
+
+    const snapshot = await loadTicketSnapshot(client)
+
+    expect(snapshot.summarySource).toBe('backend_empty')
+    expect(snapshot.linked).toBe(null)
+    expect(client.requestCalls).toHaveLength(1)
+    expect(readCustomFieldsCalls(client)).toHaveLength(0)
+  })
 })

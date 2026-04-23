@@ -1,5 +1,6 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import styled from 'styled-components'
+import { Message } from '@zendeskgarden/react-forms'
 import { Spinner } from '@zendeskgarden/react-loaders'
 import { LG, MD, SM, XL } from '@zendeskgarden/react-typography'
 import { useClient } from '../hooks/useClient.js'
@@ -18,9 +19,11 @@ export default function TicketSideBar() {
   const client = useClient()
   const i18n = useI18n()
   const { snapshot, loading, error, refresh } = useTicketSnapshot(client)
+  const [notice, setNotice] = useState(null)
 
   const handleCreate = useCallback(async () => {
     if (!snapshot?.ticketId) throw new Error('Ticket id not available')
+    setNotice(null)
     await postCreate(client, snapshot.ticketId)
     await refresh()
   }, [client, snapshot?.ticketId, refresh])
@@ -28,6 +31,7 @@ export default function TicketSideBar() {
   const handleLink = useCallback(
     async (workItemReference) => {
       if (!snapshot?.ticketId) throw new Error('Ticket id not available')
+      setNotice(null)
       await postLink(client, snapshot.ticketId, workItemReference)
       await refresh()
     },
@@ -37,6 +41,7 @@ export default function TicketSideBar() {
   const handleAddNote = useCallback(
     async (note) => {
       if (!snapshot?.ticketId) throw new Error('Ticket id not available')
+      setNotice(null)
       await postNote(client, snapshot.ticketId, note)
       await refresh()
     },
@@ -45,9 +50,11 @@ export default function TicketSideBar() {
 
   const handleUnlink = useCallback(async () => {
     if (!snapshot?.ticketId) throw new Error('Ticket id not available')
+    setNotice(null)
     await postUnlink(client, snapshot.ticketId)
     await refresh()
-  }, [client, snapshot?.ticketId, refresh])
+    setNotice({ type: 'success', text: i18n.t('ticket_sidebar.unlink_success') })
+  }, [client, i18n, snapshot?.ticketId, refresh])
 
   useEffect(() => {
     client.invoke('resize', { width: '100%', height: SIDEBAR_HEIGHT })
@@ -127,8 +134,7 @@ export default function TicketSideBar() {
             unlinkConfirm: i18n.t('ticket_sidebar.unlink_confirm'),
             unlinkConfirmButton: i18n.t('ticket_sidebar.unlink_confirm_button'),
             unlinkCancel: i18n.t('ticket_sidebar.unlink_cancel'),
-            unlinkWorking: i18n.t('ticket_sidebar.unlink_button_working'),
-            unlinkSuccess: i18n.t('ticket_sidebar.unlink_success')
+            unlinkWorking: i18n.t('ticket_sidebar.unlink_button_working')
           }}
           linked={linked}
           onAddNote={handleAddNote}
@@ -139,6 +145,7 @@ export default function TicketSideBar() {
         <EmptyStateCard>
           <LG isBold>{i18n.t('ticket_sidebar.linked_empty_title')}</LG>
           <MD>{i18n.t('ticket_sidebar.linked_empty_body')}</MD>
+          {notice ? <Message validation={notice.type}>{notice.text}</Message> : null}
         </EmptyStateCard>
       )}
 

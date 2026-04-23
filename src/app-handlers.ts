@@ -7,7 +7,12 @@ import {
   hasDatedRange,
 } from './ado-status.js';
 import { buildClearedAdoZendeskFields, buildLinkedAdoZendeskFields } from './ado-zendesk-fields.js';
-import { DevAzureClient, DevAzureHttpError, type AdoWorkItemSnapshot } from './devazure-client.js';
+import {
+  DevAzureClient,
+  DevAzureHttpError,
+  DevAzureTimeoutError,
+  type AdoWorkItemSnapshot,
+} from './devazure-client.js';
 import { execute, query } from './lib/oracle.js';
 import { getTicketRaw, updateTicketWithNote, type ZendeskTicketSnapshot } from './lib/zendesk-api.js';
 import { buildSyncPlan } from './sync-planner.js';
@@ -67,6 +72,11 @@ export interface AdoSupportProjection {
   sprintEnd: string | null;
   eta: string | null;
   syncHealth: string | null;
+}
+
+interface AdoSummaryContext {
+  adoSnapshot: AdoWorkItemSnapshot | null;
+  adoProjection: AdoSupportProjection | null;
 }
 
 export class AppActionError extends Error {
@@ -134,12 +144,39 @@ function buildCustomerUpdate(workItem: {
   return pieces.length > 0 ? pieces.join(' ') : null;
 }
 
+function isRecoverableAdoReadError(err: unknown): boolean {
+  return err instanceof DevAzureHttpError || err instanceof DevAzureTimeoutError || err instanceof TypeError;
+}
+
+function buildDegradedAdoProjection(statusDetail: string): AdoSupportProjection {
+  return {
+    status: 'ADO unavailable',
+    statusDetail,
+    statusTag: null,
+    sprint: null,
+    sprintStart: null,
+    sprintEnd: null,
+    eta: null,
+    syncHealth: ADO_SYNC_HEALTH_TAGS.warning,
+  };
+}
+
 export async function buildAdoSupportProjection(
   config: AppConfig,
   ado: DevAzureClient,
   snapshot: AdoWorkItemSnapshot,
 ): Promise<AdoSupportProjection & { fingerprint: string; workItemUrl: string }> {
-  const iteration = await fetchIterationMetadata(ado, config.devAzure.project, snapshot.iterationPath);
+  let iteration: Awaited<ReturnType<typeof fetchIterationMetadata>> = null;
+  let syncHealth: string | null = ADO_SYNC_HEALTH_TAGS.ok;
+  try {
+    iteration = await fetchIterationMetadata(ado, config.devAzure.project, snapshot.iterationPath);
+  } catch (err) {
+    if (!isRecoverableAdoReadError(err)) {
+      throw err;
+    }
+    syncHealth = ADO_SYNC_HEALTH_TAGS.warning;
+  }
+
   const dated = hasDatedRange(iteration);
   const statusTag = deriveAdoStatus({
     workItemState: snapshot.state,
@@ -175,10 +212,42 @@ export async function buildAdoSupportProjection(
     sprintStart,
     sprintEnd,
     eta: sprintEnd,
-    syncHealth: ADO_SYNC_HEALTH_TAGS.ok,
+    syncHealth,
     fingerprint,
     workItemUrl,
   };
+}
+
+async function loadAdoSummaryContext(
+  config: AppConfig,
+  ado: DevAzureClient,
+  link: SyncLinkRow | null,
+): Promise<AdoSummaryContext> {
+  if (!link) {
+    return { adoSnapshot: null, adoProjection: null };
+  }
+
+  try {
+    const adoSnapshot = await ado.getWorkItem(link.ADO_WORK_ITEM_ID);
+    if (!adoSnapshot) {
+      return {
+        adoSnapshot: null,
+        adoProjection: buildDegradedAdoProjection('Linked ADO work item could not be found.'),
+      };
+    }
+    const adoProjection = await buildAdoSupportProjection(config, ado, adoSnapshot);
+    return { adoSnapshot, adoProjection };
+  } catch (err) {
+    if (!isRecoverableAdoReadError(err)) {
+      throw err;
+    }
+    const message = err instanceof Error ? err.message : 'Live ADO details could not be loaded.';
+    console.warn(`[app] degraded ADO summary ticket link=${link.ADO_WORK_ITEM_ID}: ${message}`);
+    return {
+      adoSnapshot: null,
+      adoProjection: buildDegradedAdoProjection('Live ADO details could not be loaded. Try Refresh.'),
+    };
+  }
 }
 
 export function buildSummaryFromSnapshot(
@@ -268,8 +337,7 @@ export async function getTicketSummary(
 ): Promise<SummaryResponse> {
   const ticketId = validateTicketId(ticketIdRaw);
   const link = await loadActiveLink(ticketIdRaw);
-  const adoSnapshot = link ? await ado.getWorkItem(link.ADO_WORK_ITEM_ID) : null;
-  const adoProjection = adoSnapshot ? await buildAdoSupportProjection(config, ado, adoSnapshot) : null;
+  const { adoSnapshot, adoProjection } = await loadAdoSummaryContext(config, ado, link);
   return buildSummaryFromSnapshot(ticketId, link, null, config.devAzure.orgUrl, adoSnapshot, adoProjection);
 }
 
@@ -346,8 +414,7 @@ async function freshSummary(
   ado: DevAzureClient,
 ): Promise<SummaryResponse> {
   const link = await loadActiveLink(ticketIdRaw);
-  const adoSnapshot = link ? await ado.getWorkItem(link.ADO_WORK_ITEM_ID) : null;
-  const adoProjection = adoSnapshot ? await buildAdoSupportProjection(config, ado, adoSnapshot) : null;
+  const { adoSnapshot, adoProjection } = await loadAdoSummaryContext(config, ado, link);
   return buildSummaryFromSnapshot(Number(ticketIdRaw), link, null, config.devAzure.orgUrl, adoSnapshot, adoProjection);
 }
 
@@ -556,6 +623,13 @@ export async function unlinkAdoFromTicket(
     ]);
   }
 
+  await updateTicketWithNote(
+    config,
+    String(ticketId),
+    buildClearedAdoZendeskFields(),
+    `[Synced by sidebar] Unlinked Azure DevOps work item #${link.ADO_WORK_ITEM_ID} from this Zendesk ticket.\n${workItemUrl}`,
+  );
+
   await execute(
     `UPDATE SYNC_LINK
         SET IS_ACTIVE = 0,
@@ -564,13 +638,6 @@ export async function unlinkAdoFromTicket(
             UPDATED_AT = SYSTIMESTAMP
       WHERE ZENDESK_TICKET_ID = :ticketId AND IS_ACTIVE = 1`,
     { ticketId: String(ticketId) },
-  );
-
-  await updateTicketWithNote(
-    config,
-    String(ticketId),
-    buildClearedAdoZendeskFields(),
-    `[Synced by sidebar] Unlinked Azure DevOps work item #${link.ADO_WORK_ITEM_ID} from this Zendesk ticket.\n${workItemUrl}`,
   );
 
   await execute(
@@ -650,6 +717,13 @@ export async function addAdoNoteFromTicket(
             UPDATED_AT = SYSTIMESTAMP
       WHERE ZENDESK_TICKET_ID = :ticketId AND IS_ACTIVE = 1`,
     { ticketId: String(ticketId) },
+  );
+
+  await updateTicketWithNote(
+    config,
+    String(ticketId),
+    {},
+    `[Synced by sidebar] Added support note to Azure DevOps work item #${link.ADO_WORK_ITEM_ID}.\n\n${normalizedNote}`,
   );
 
   await execute(

@@ -120,17 +120,21 @@ export async function loadTicketSnapshot(client) {
   // backend traffic from this app.
   let backendLinked = null
   let summarySource = 'fields'
+  let shouldUseFieldFallback = true
   if (numericTicketId) {
     try {
       const summary = await fetchSummary(client, numericTicketId)
       backendLinked = linkedFromBackend(summary)
       summarySource = summary?.linked ? 'backend' : 'backend_empty'
+      shouldUseFieldFallback = false
     } catch (err) {
       summarySource = 'fields_fallback'
     }
   }
 
-  const linked = backendLinked ?? linkedFromFields(await loadLinkedFields(client))
+  const linked =
+    backendLinked ??
+    (shouldUseFieldFallback ? linkedFromFields(await loadLinkedFields(client)) : null)
 
   return {
     ticketId: numericTicketId,

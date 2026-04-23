@@ -134,3 +134,42 @@ test('buildSyncPlan returns noop for destructive events', () => {
   assert.match(plan.reason, /Ignoring destructive Zendesk event/);
   assert.equal(plan.operations.length, 0);
 });
+
+test('buildSyncPlan returns noop for integration-authored private notes', () => {
+  const event = {
+    id: 'evt-3',
+    type: 'zen:event-type:ticket.comment_added',
+    subject: 'zen:ticket:75418',
+    time: '2025-01-15T02:50:15.906323869Z',
+    zendeskEventVersion: '2022-11-06',
+    detail: {
+      id: '75418',
+      subject: 'Integration note',
+      description: 'No customer change',
+      status: 'OPEN',
+      priority: null,
+      type: null,
+      tags: [],
+      updatedAt: '2025-01-15T02:50:15Z',
+      createdAt: '2025-01-15T02:50:15Z',
+      requesterId: null,
+      assigneeId: null,
+      organizationId: null,
+      groupId: null,
+      brandId: null,
+      viaChannel: 'web_service',
+      product: null,
+      orgName: null,
+      caseType: null,
+      crf: null,
+    },
+    commentId: '123',
+    commentBody: '[Synced by sidebar] Unlinked Azure DevOps work item #79741 from this Zendesk ticket.',
+  };
+
+  const plan = buildSyncPlan(event, baseConfig, null);
+
+  assert.equal(plan.action, 'noop');
+  assert.match(plan.reason, /integration-authored/);
+  assert.equal(plan.operations.length, 0);
+});

@@ -32,7 +32,12 @@ function mapPriority(priority: string | null): number | null {
   return ZENDESK_PRIORITY_MAP[priority.toLowerCase()] ?? null;
 }
 
-function shouldSkipEvent(eventType: string): string | null {
+function shouldSkipEvent(event: ZendeskTicketEvent): string | null {
+  const comment = event.commentBody?.trim() ?? '';
+  if (comment.startsWith('[Synced by integration]') || comment.startsWith('[Synced by sidebar]')) {
+    return 'Ignoring integration-authored Zendesk note';
+  }
+
   const ignoredSuffixes = [
     'marked_as_spam',
     'soft_deleted',
@@ -40,7 +45,7 @@ function shouldSkipEvent(eventType: string): string | null {
     'merged',
   ];
 
-  const match = ignoredSuffixes.find((suffix) => eventType.endsWith(suffix));
+  const match = ignoredSuffixes.find((suffix) => event.type.endsWith(suffix));
   return match ? `Ignoring destructive Zendesk event: ${match}` : null;
 }
 
@@ -211,7 +216,7 @@ export function buildSyncPlan(
   config: AppConfig,
   existingWorkItem: ExistingWorkItem | null,
 ): SyncPlan {
-  const skipReason = shouldSkipEvent(event.type);
+  const skipReason = shouldSkipEvent(event);
   const titleSubject = event.detail.subject ?? event.subject ?? 'Untitled Zendesk ticket';
   const title = `[Zendesk #${event.detail.id}] ${titleSubject}`;
   const workItemType = resolveWorkItemType(event.detail.caseType);

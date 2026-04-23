@@ -8,6 +8,18 @@ export class DevAzureHttpError extends Error {
   }
 }
 
+export class DevAzureTimeoutError extends DevAzureHttpError {
+  constructor(method: string, path: string, timeoutMs: number) {
+    super(504, `DevAzure ${method} ${path} timed out after ${timeoutMs}ms`);
+  }
+}
+
+const DEVAZURE_REQUEST_TIMEOUT_MS = 10_000;
+
+function isAbortLikeError(err: unknown): boolean {
+  return err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
+}
+
 interface WiqlResponse {
   workItems?: Array<{
     id: number;
@@ -86,15 +98,24 @@ export class DevAzureClient {
     body?: unknown,
     contentType = 'application/json',
   ): Promise<T> {
-    const response = await fetch(this.buildUrl(path), {
-      method,
-      headers: {
-        Authorization: this.authHeader,
-        Accept: 'application/json',
-        'Content-Type': contentType,
-      },
-      body: body == null ? undefined : JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await fetch(this.buildUrl(path), {
+        method,
+        headers: {
+          Authorization: this.authHeader,
+          Accept: 'application/json',
+          'Content-Type': contentType,
+        },
+        body: body == null ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(DEVAZURE_REQUEST_TIMEOUT_MS),
+      });
+    } catch (err) {
+      if (isAbortLikeError(err)) {
+        throw new DevAzureTimeoutError(method, path, DEVAZURE_REQUEST_TIMEOUT_MS);
+      }
+      throw err;
+    }
 
     if (!response.ok) {
       const payload = await response.text();
