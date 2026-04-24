@@ -593,6 +593,23 @@ If ZAF cannot provide a current user, the action may proceed but must stamp `Unk
 
 Azure DevOps `System.CreatedBy` remains the identity used for the ADO API call unless the future design changes to per-agent ADO OAuth or a privileged bypass-rules create flow. In v1, analyst attribution is preserved through `Zendesk submitter`, ADO discussion/comment text where relevant, Zendesk internal notes, and Oracle audit rows.
 
+### 10.9 Sidebar notification behavior
+
+The sidebar should not promise to write to Zendesk's native profile notification inbox. Zendesk Apps Notify can be used only as a best-effort, real-time event channel for app instances that are currently open.
+
+V1 notification behavior:
+
+- ADO status/comment updates are copied to Zendesk as internal notes.
+- ADO status/ETA fields are updated on the Zendesk ticket when mapped values change.
+- Zendesk triggers, assignee notifications, and followers remain the durable way to alert agents.
+- The Activity tab shows recent human ADO discussion and status context for agents already viewing the ticket.
+
+Optional future enhancement:
+
+- Backend calls Zendesk Apps Notify with an `ado_update_available` event targeted to the ticket assignee when an ADO update arrives.
+- The open sidebar listens for that event, shows a compact banner, and refreshes the summary.
+- The same ADO update must still be written to the ticket because Apps Notify is not durable and offline agents may miss it.
+
 ## 11. App To Backend Auth
 
 Current implementation:

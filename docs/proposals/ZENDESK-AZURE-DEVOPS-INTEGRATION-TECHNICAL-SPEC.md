@@ -16,6 +16,7 @@ It is based on:
 - The business requirements received on 2026-04-15
 - The current deployed implementation on `main`
 - The client-readiness smoke report in [2026-04-24-client-readiness-smoke.md](../reports/2026-04-24-client-readiness-smoke.md)
+- The identity and notification decision report in [2026-04-24-ado-created-by-and-zendesk-notify-investigation.md](../reports/2026-04-24-ado-created-by-and-zendesk-notify-investigation.md)
 - The SOTA research and knowledge-gap review in [2026-04-15-zendesk-ado-sota-research-gap-analysis.md](../reports/2026-04-15-zendesk-ado-sota-research-gap-analysis.md)
 - The consolidated solution design in [ZENDESK-ADO-FULL-SOLUTION-DESIGN.md](./ZENDESK-ADO-FULL-SOLUTION-DESIGN.md)
 - Live tenant discovery performed against:
@@ -455,6 +456,22 @@ Recommended guardrails:
 - Require an active `SYNC_LINK` row before processing comment-added sync; unlinked comment events should no-op without querying ADO
 - Keep Zendesk trigger payloads compact and hydrate latest comment text, visibility, and attachments from the Zendesk Comments API to avoid brittle Liquid JSON escaping
 
+### 9.1 Identity And Notification Decisions
+
+The v1/pilot identity decision is to keep Azure DevOps create/update operations under the dedicated integration identity and preserve the acting Zendesk agent as explicit attribution. This is the safest production model because it avoids per-agent ADO licensing, token storage, token expiry support, and impersonation risk while still preserving a clear audit trail.
+
+Required attribution surfaces:
+
+- ADO structured description field: `Zendesk submitter`
+- ADO discussion comments created from Zendesk
+- Zendesk internal audit notes
+- Oracle `AUDIT_LOG.SUMMARY`
+- Optional future ADO custom field such as `Custom.ZendeskSubmitter`, if the client adds it to the process template
+
+If the client requires native ADO `System.CreatedBy` to display the Zendesk analyst, treat it as a v2 security workstream using Microsoft Entra delegated auth. Do not use per-user PATs. Do not use privileged `bypassRules=true` impersonation for normal support workflows unless the client provides explicit ADO/security approval and accepts the non-repudiation trade-off.
+
+The v1/pilot notification decision is to use durable Zendesk ticket updates as the primary notification channel: ADO updates write internal notes and update synced status/ETA fields, and Zendesk triggers/followers should notify assignees or groups. Zendesk Apps Notify may be added later only as a best-effort real-time signal for open ZAF app instances; it is not a persistent profile-notification inbox.
+
 ## 10. Attachment Synchronization Policy
 
 Implemented policy:
@@ -659,8 +676,6 @@ Recommended UI pattern:
 - Confirm whether v1 supports one primary linked work item or multiple linked work items per Zendesk ticket
 - Replace the temporary Cloudflare tunnel with the stable public URL before broad client usage
 - Approve whether support analysts may update ADO fields beyond discussion comments from Zendesk
-- Decide whether to invest in per-agent Azure DevOps OAuth for true ADO `System.CreatedBy`; otherwise keep service-account creation with explicit Zendesk submitter attribution.
-- Decide whether Zendesk Apps Notify API should be used for ephemeral open-sidebar alerts. Zendesk's native profile notification list is not a general persistent custom-notification target; app notify events are delivered to currently open ZAF app instances.
 
 ## 16. Recommended Next Steps
 
@@ -671,3 +686,5 @@ Recommended UI pattern:
 5. Finalize the field crosswalk table for stricter `Custom.Client`, `Custom.Product`, assignee, and remaining routing writes.
 6. Decide which ADO field-changing actions, if any, support analysts can perform from Zendesk after v1.
 7. Widen `ZENDESK_APP_ALLOWED_FORM_IDS` only after business sign-off and a successful pilot review.
+8. If the client rejects service-account ADO creation, scope a separate Microsoft Entra delegated-auth workstream for native per-agent ADO `System.CreatedBy`.
+9. If the client needs more immediate alerts than internal notes/triggers/followers, add an optional Apps Notify toast for open sidebar sessions while keeping Zendesk-native notifications as the durable path.
