@@ -326,7 +326,7 @@ Support-facing activity:
 - last sync date/source
 - current status detail
 - sync health
-- newest ADO discussion comments, capped for sidebar space and loaded as a degraded/non-blocking enhancement
+- newest human ADO discussion comments, capped for sidebar space, loaded as a degraded/non-blocking enhancement, normalized from ADO HTML to plain text, and filtered to hide integration-generated sync chatter
 - customer-ready update text that can be copied into a Zendesk reply
 
 Future enhancement:
@@ -618,6 +618,7 @@ Research basis:
 | Sidebar-create routing used inactive product field | New ADO items could be routed through the default path because the sidebar read inactive `Product ORIG` instead of live `Product*` | Sidebar ticket-to-event mapping now reads active `Product*` and `Org Name` field IDs from the pilot form |
 | Free-text Zendesk org sent to ADO client picklist | ADO create/update could fail when Zendesk `Org Name` did not exactly match an allowed `Custom.Client` value | `Org Name` is preserved in the ADO description, and `Custom.Client` is written only for approved ADO client values |
 | ADO discussion hidden from support | Sidebar-added ADO context could be present in ADO but invisible in Zendesk, forcing agents back into ADO to confirm it | Summary now includes the newest ADO discussion comments and the Activity tab renders them compactly |
+| Raw ADO HTML or sync chatter visible in Activity | ADO comments can arrive as HTML fragments, and integration comments can crowd out useful developer updates | Recent ADO activity is normalized to compact plain text, fetches a deeper window, filters integration-generated sync messages, and returns only display-ready human discussion |
 | ADO note used history instead of comments | Writing `System.History` made sidebar updates look like history entries rather than normal ADO discussion comments | Sidebar update action now uses the Azure DevOps Work Item Comments API and records a Zendesk internal audit note |
 | Sidebar actions lacked visible actor attribution | Support leads could see that the integration changed ADO/Zendesk but not which analyst used the sidebar action | Mutation requests now include signed ZAF current-user claims; ADO discussions, Zendesk internal notes, and Oracle audit summaries stamp the acting Zendesk agent |
 | BRD sprint-assigned status mismatch | Sprint-assigned ADO items could appear merely scheduled when the BRD expects `Dev In Progress` | Status derivation now maps any dated sprint assignment to `Dev In Progress` unless completion or on-hold state wins |
@@ -790,8 +791,8 @@ Still required before wider rollout:
 Done.
 
 - linked state uses the compact ADO workspace layout
-- summary endpoint returns live ADO title/type/state/owner/priority/severity/area/tags/change metadata and recent discussion comments
-- Activity tab includes current status, last sync, last ADO change, recent ADO discussion, and copyable customer-ready update
+- summary endpoint returns live ADO title/type/state/owner/priority/severity/area/tags/change metadata and display-ready recent human discussion comments
+- Activity tab includes current status, last sync, last ADO change, cleaned recent ADO discussion, and copyable customer-ready update
 - Update tab can append an ADO discussion comment from Zendesk
 - linked workspace can unlink the ADO item from the Zendesk ticket without hiding the action inside a tab
 - empty state keeps create/link actions focused and does not consume linked-ticket screen space
