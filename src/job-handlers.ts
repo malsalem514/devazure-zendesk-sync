@@ -8,6 +8,7 @@ import {
   hasDatedRange,
   type AdoStatusTag,
 } from './ado-status.js';
+import { cleanAdoCommentText, isIntegrationAdoComment } from './ado-comments.js';
 import { buildLinkedAdoZendeskFields } from './ado-zendesk-fields.js';
 import { DevAzureClient, DevAzureHttpError, DevAzureTimeoutError } from './devazure-client.js';
 import { execute, query } from './lib/oracle.js';
@@ -45,13 +46,6 @@ function isZendeskCommentEvent(event: ZendeskTicketEvent): boolean {
 
 function isZendeskCommentAddedEvent(event: ZendeskTicketEvent): boolean {
   return event.type.endsWith('ticket.comment_added');
-}
-
-function isIntegrationAdoComment(text: string | null): boolean {
-  const normalized = text?.trim() ?? '';
-  return normalized.startsWith('[Synced from Zendesk by integration]')
-    || normalized.startsWith('[Synced by sidebar]')
-    || normalized.startsWith('[Synced by integration]');
 }
 
 function buildAdoCommentFromZendesk(event: ZendeskTicketEvent, config: AppConfig): string {
@@ -245,6 +239,10 @@ async function syncRecentAdoCommentsToZendesk(
     if (!comment.id || isIntegrationAdoComment(comment.text)) {
       continue;
     }
+    const commentText = cleanAdoCommentText(comment.text);
+    if (!commentText) {
+      continue;
+    }
     const createdAt = comment.createdAt ? new Date(comment.createdAt).getTime() : NaN;
     if (!Number.isFinite(createdAt) || createdAt < minTime) {
       continue;
@@ -263,7 +261,7 @@ async function syncRecentAdoCommentsToZendesk(
         comment.createdBy ? `Author: ${comment.createdBy}` : null,
         comment.createdAt ? `Created: ${comment.createdAt}` : null,
         '',
-        comment.text ?? '',
+        commentText,
       ].filter((line): line is string => line != null).join('\n'),
     );
     await recordSyncedComment({

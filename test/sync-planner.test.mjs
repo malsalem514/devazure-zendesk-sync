@@ -71,6 +71,9 @@ test('buildSyncPlan creates a create plan for a normal ticket event', () => {
   assert.ok(
     plan.operations.some((operation) => operation.path === '/relations/-'),
   );
+  assert.ok(
+    !plan.operations.some((operation) => operation.path === '/fields/System.History'),
+  );
   // V1 required fields
   assert.ok(
     plan.operations.some((op) => op.path === '/fields/Custom.Bucket' && op.value === 'Support'),

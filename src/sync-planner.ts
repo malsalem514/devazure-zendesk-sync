@@ -179,11 +179,6 @@ function buildOperations(
     { op: 'add', path: '/fields/System.Title', value: title },
     { op: 'add', path: '/fields/System.Description', value: description },
     { op: 'add', path: '/fields/System.Tags', value: tags.join('; ') },
-    {
-      op: 'add',
-      path: '/fields/System.History',
-      value: `Synced from Zendesk event ${event.type} at ${event.time ?? new Date().toISOString()}`,
-    },
   ];
 
   const priority = mapPriority(event.detail.priority);
