@@ -526,7 +526,7 @@ These are still working labels and can be refined with the business.
 7. Define the Azure DevOps to Zendesk status mapping table.
 8. Define the sprint and ETA fallback hierarchy.
 9. Implement the sidebar app as a phase-1 deliverable, then validate it on the pilot form before expanding rollout.
-10. Verify Azure DevOps service-hook creation rights and attachment upload permission.
+10. Historical only: service-hook delivery and attachment upload were later verified in the 2026-04-24 readiness smoke.
 11. Lock Oracle-backed worker tables as the v1 worker pattern unless the DBA team later enables AQ, then draft the deployment shape for the new container on the existing Linux Docker host.
 
 ## 11. Related Documents

@@ -17,17 +17,22 @@ For implementation work, start with:
 
 Source of truth for customer incidents: Zendesk. Engineering execution target: Azure DevOps. Sync is event-driven and bidirectional:
 
-- **Zendesk → ADO.** Ticket events (`zen:event-type:ticket.*`) hit `POST /webhooks/zendesk` (HMAC-verified), are persisted to an Oracle ledger, picked up by a durable worker (`SELECT FOR UPDATE SKIP LOCKED`), planned against a 13-family routing matrix, and create or update a work item via JSON Patch with revision-based optimistic concurrency. The integration writes ADO work-item ID/URL + status back onto the Zendesk ticket in a single API call.
-- **ADO → Zendesk.** Work-item `workitem.created` / `workitem.updated` service-hook events hit `POST /webhooks/ado` (Basic-auth-verified), enqueue a reverse-sync job, and write `ADO Status`, `ADO Status Detail`, `ADO Sprint`, `ADO Sprint Start`, `ADO Sprint End`, `ADO ETA`, and `ADO Sync Health` onto the linked ticket. A SHA-256 fingerprint on `SYNC_LINK.LAST_ADO_FINGERPRINT` short-circuits redundant writes. A 15-minute polling reconciler covers missed service-hook events.
+- **Zendesk → ADO.** Ticket events (`zen:event-type:ticket.*`) hit `POST /webhooks/zendesk` (HMAC-verified), are persisted to an Oracle ledger, picked up by a durable worker (`SELECT FOR UPDATE SKIP LOCKED`), planned against a 13-family routing matrix, and create or update a work item via JSON Patch with revision-based optimistic concurrency. Public replies and private notes tagged `#sync` sync to ADO discussions; synced Zendesk attachments upload to ADO with size/host guardrails.
+- **ADO → Zendesk.** Work-item `workitem.created` / `workitem.updated` service-hook events hit `POST /webhooks/ado` (Basic-auth-verified), enqueue a reverse-sync job, and write `ADO Status`, `ADO Status Detail`, `ADO Sprint`, `ADO Sprint Start`, `ADO Sprint End`, `ADO ETA`, and `ADO Sync Health` onto the linked ticket. Recent ADO discussion comments sync back as Zendesk internal notes. A SHA-256 fingerprint on `SYNC_LINK.LAST_ADO_FINGERPRINT` short-circuits redundant writes. A 15-minute polling reconciler covers missed service-hook events.
+- **Zendesk sidebar app.** The private ticket-sidebar app is the primary analyst workspace for creating, linking, unlinking, viewing ADO summary/activity, and adding ADO discussion comments. Signed ZAF JWT claims attribute create/link/unlink/comment actions to the acting Zendesk agent.
 
-Durable state lives in Oracle (`AUTOMATION@srv-db-100/SUPPOPS`): `SYNC_LINK`, `SYNC_EVENT`, `SYNC_JOB`, `SYNC_ATTEMPT`, `AUDIT_LOG`, `ITERATION_CACHE` — all created idempotently at startup.
+Durable state lives in Oracle (`AUTOMATION@srv-db-100/SUPPOPS`): `SYNC_LINK`, `SYNC_EVENT`, `SYNC_JOB`, `SYNC_ATTEMPT`, `AUDIT_LOG`, `COMMENT_SYNC_MAP`, `ATTACHMENT_SYNC_MAP`, `ITERATION_CACHE` — all created idempotently at startup.
 
 ## What's included
 
 - Raw `node:http` webhook endpoints with timing-safe auth (HMAC-SHA256 for Zendesk, Basic auth for ADO)
-- Oracle pool + schema + 6-table durable state + `SELECT FOR UPDATE SKIP LOCKED` worker (`oracledb` thin mode, no Instant Client)
+- Oracle pool + schema + 8-table durable state + `SELECT FOR UPDATE SKIP LOCKED` worker (`oracledb` thin mode, no Instant Client)
 - V1 product-family routing (`src/routing.ts`) with required ADO field defaults (`Custom.Bucket=Support`, `Custom.Unplanned=true`, `Microsoft.VSTS.Common.ValueArea=Business`)
-- 10 `ADO *` Zendesk custom fields + a single-call "update fields + add private note" helper
+- compact `ADO *` Zendesk custom-field projection + a single-call "update fields + add private note" helper
+- private Zendesk sidebar app package under `zendesk-sidebar-app/`
+- signed sidebar endpoints for summary/create/link/unlink/comment plus server-side ticket-form scope checks
+- selective Zendesk/ADO comment sync, ADO discussion back-sync, attachment upload, comment/attachment dedupe maps
+- token-protected operator endpoints: `GET /internal/jobs/dead`, `POST /internal/jobs/:id/retry`
 - ADO status derivation, sprint metadata cache (1h TTL), and status-detail templates per [ZENDESK-ADO-V1-FIELD-DEFINITIONS.md §§ 8-9](./docs/proposals/ZENDESK-ADO-V1-FIELD-DEFINITIONS.md)
 - Reverse-sync fingerprint guard (no-op when nothing meaningful changed)
 - Reconciliation cron on an offset schedule (`:07 :22 :37 :52`) as a polling safety net
@@ -79,6 +84,7 @@ POST http://localhost:8787/webhooks/ado       # Basic-auth-verified
 See [docs/ops/deployment.md](./docs/ops/deployment.md) for the bring-up runbook on `ubuntu-docker-host`. The current state:
 
 - Container is deployed, running, and healthy (`SYNC_DRY_RUN=false`)
+- Pilot uses a Cloudflare quick tunnel plus tunnel guardian for the Zendesk app/backend URL
 - DNS + 443 port-forward for `zendesk-sync.jestais.com` pending IT (tracked as `OPS-002` in `conductor/tracks.md`)
 - Caddy site block staged on the host for one-command apply once DNS resolves
 
@@ -98,6 +104,15 @@ Safety toggles:
 
 - `SYNC_DRY_RUN=true` — disables worker + reconciler crons, returns plans inline without side effects (default)
 - `ZENDESK_SKIP_SIGNATURE_VERIFICATION=true` — for local testing only
+
+Sidebar app and operator APIs:
+
+- `ZENDESK_APP_SHARED_SECRET` verifies ZAF JWTs for `/app/ado/tickets/:id/*`
+- `ZENDESK_APP_ALLOWED_FORM_IDS` scopes signed sidebar routes; defaults to `50882600373907`
+- `COMMENT_SYNC_MAX_AGE_HOURS` bounds ADO comment back-sync
+- `SYNC_MAX_ATTACHMENT_BYTES` bounds Zendesk attachment uploads to ADO
+- `INTERNAL_ADMIN_TOKEN` protects dead-job inspection and retry endpoints
+- `SYNC_ADMIN_ALERT_WEBHOOK_URL` optionally receives critical auth-failure alerts
 
 Optional:
 
@@ -132,6 +147,8 @@ See [CLIENT-HANDOFF.md](./CLIENT-HANDOFF.md) for the delivery checklist.
 - [docs/proposals/ZENDESK-ADO-FULL-SOLUTION-DESIGN.md](./docs/proposals/ZENDESK-ADO-FULL-SOLUTION-DESIGN.md)
 - [docs/proposals/ZENDESK-ADO-V1-FIELD-DEFINITIONS.md](./docs/proposals/ZENDESK-ADO-V1-FIELD-DEFINITIONS.md)
 - [docs/proposals/ZENDESK-ADO-V1-ROUTING-MATRIX.md](./docs/proposals/ZENDESK-ADO-V1-ROUTING-MATRIX.md)
+- [docs/proposals/ZENDESK-SIDEBAR-APP-IMPLEMENTATION-SPEC.md](./docs/proposals/ZENDESK-SIDEBAR-APP-IMPLEMENTATION-SPEC.md)
+- [docs/reports/2026-04-24-client-readiness-smoke.md](./docs/reports/2026-04-24-client-readiness-smoke.md)
 - [docs/reports/2026-04-15-zendesk-ado-sota-research-gap-analysis.md](./docs/reports/2026-04-15-zendesk-ado-sota-research-gap-analysis.md)
 
 ## What's next
@@ -139,7 +156,6 @@ See [CLIENT-HANDOFF.md](./CLIENT-HANDOFF.md) for the delivery checklist.
 See [conductor/tracks.md](./conductor/tracks.md) for the live workstream list. At time of writing:
 
 - **OPS-002** — public URL go-live, blocked on IT (DNS + 443)
-- **APP-005** — one Zendesk visual smoke on the refreshed sidebar app
-- **APP-004** — Phase 6: comment/attachment sync and relink audit trail
-- **HARDEN-001** — operator endpoints, log rotation, kill-switch flag
+- **PILOT-001** — controlled two-analyst client pilot on the pilot form
+- **HARDEN-001** — structured logs/dashboard/kill-switch refinements
 - **ROUTE-001** — business sign-off on 5 pending product families

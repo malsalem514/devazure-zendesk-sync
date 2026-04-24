@@ -23,6 +23,8 @@ For the next coding session, read in this order:
   Target architecture, runtime components, Oracle persistence model, and deployment direction.
 - [ZENDESK-ADO-V1-FIELD-DEFINITIONS.md](./proposals/ZENDESK-ADO-V1-FIELD-DEFINITIONS.md)
   Zendesk-facing field contract for v1.
+- [ZENDESK-SIDEBAR-APP-IMPLEMENTATION-SPEC.md](./proposals/ZENDESK-SIDEBAR-APP-IMPLEMENTATION-SPEC.md)
+  Current private Zendesk sidebar app contract, hardening template, and pilot acceptance criteria.
 - [ZENDESK-ADO-V1-ROUTING-MATRIX.md](./proposals/ZENDESK-ADO-V1-ROUTING-MATRIX.md)
   V1 product-family routing defaults for new Azure DevOps work item creation.
 
@@ -33,20 +35,22 @@ For the next coding session, read in this order:
 - [ZENDESK-ADO-INTEGRATION-SOLUTION-SUMMARY.md](./proposals/ZENDESK-ADO-INTEGRATION-SOLUTION-SUMMARY.md)
 - [ZENDESK-ADO-V1-FIELD-DEFINITIONS.md](./proposals/ZENDESK-ADO-V1-FIELD-DEFINITIONS.md)
 - [ZENDESK-ADO-V1-ROUTING-MATRIX.md](./proposals/ZENDESK-ADO-V1-ROUTING-MATRIX.md)
+- [ZENDESK-SIDEBAR-APP-IMPLEMENTATION-SPEC.md](./proposals/ZENDESK-SIDEBAR-APP-IMPLEMENTATION-SPEC.md)
 - [DEVAZURE-ZENDESK-INTEGRATION-PROJECT-CHARTER.md](./proposals/DEVAZURE-ZENDESK-INTEGRATION-PROJECT-CHARTER.md)
 
 ## Reports
 
 - [2026-04-15-zendesk-ado-sota-research-gap-analysis.md](./reports/2026-04-15-zendesk-ado-sota-research-gap-analysis.md)
 - [2026-04-16-sota-inventory-and-leverage-plan.md](./reports/2026-04-16-sota-inventory-and-leverage-plan.md) — Package decisions, reference architectures, and build-vs-buy analysis for v1
+- [2026-04-24-client-readiness-smoke.md](./reports/2026-04-24-client-readiness-smoke.md) — Live pilot readiness smoke for create/link/unlink/comment/status/attachment/UI checks
 
 ## Current Code Vs Target Design
 
-- **Phases 1-5 of the target v1 design are implemented in-repo.** The service has Oracle-backed persistence (6 tables), a durable `SELECT FOR UPDATE SKIP LOCKED` worker, the V1 routing matrix, bidirectional sync (Zendesk → ADO create/update + ADO → Zendesk status/sprint/ETA via service hook), a reconciler safety net, and a Docker deployment package.
+- **Phases 1-6 of the target v1 design are implemented in-repo for the pilot scope.** The service has Oracle-backed persistence (8 tables), a durable `SELECT FOR UPDATE SKIP LOCKED` worker, the V1 routing matrix, bidirectional sync (Zendesk → ADO create/update/comment/attachment + ADO → Zendesk status/sprint/ETA/comments via service hook), a reconciler safety net, and a Docker deployment package.
 - **The stack is deployed** on `ubuntu-docker-host` in `SYNC_DRY_RUN=false` mode. Container healthy, Oracle pool + schema initialized, worker + reconciler crons running.
 - **The stable public URL is still blocked** by DNS + 443 port-forward work tracked in `conductor/tracks.md` as `OPS-002`; the pilot currently depends on the Cloudflare quick tunnel plus tunnel guardian.
-- **The sidebar app create/link workflow is implemented, installed, live endpoint-validated, and package-refreshed**; remaining `APP-005` work is one visual Zendesk smoke on the `Musa ADO Form Testing` form.
-- **Phase 6 (comment/attachment sync and relink audit trail)** is planned next.
+- **The sidebar app create/link/unlink/comment workspace is implemented, installed, live endpoint-validated, package-refreshed, and visually smoked** on the pilot form.
+- **Comment/attachment sync and relink audit trail** are implemented and live-smoked.
 - Use the canonical design docs above when implementation choices conflict with the starter README or historical charter.
 
 ## What Is Not In Docs

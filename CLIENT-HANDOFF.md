@@ -6,7 +6,7 @@ This service is delivered as a Docker Compose stack that runs alongside existing
 
 Preferred:
 
-- The branch `claude/amazing-darwin` (or its merged successor on `main`) of this repository, rsynced or `git clone`'d to `/srv/stacks/zendesk-ado-sync/` on the client host
+- The current `main` branch of this repository, rsynced or `git clone`'d to `/srv/stacks/zendesk-ado-sync/` on the client host
 - A populated `.env` file at `/srv/stacks/zendesk-ado-sync/.env` (0600 perms, admin user) with real credentials for Zendesk, Azure DevOps, and Oracle
 
 Alternative (air-gapped):
@@ -58,7 +58,9 @@ See [docs/ops/deployment.md](./docs/ops/deployment.md) for the full runbook, Cad
 - `SYNC_DRY_RUN` set to `false` only after a first dry-run smoke test
 - Zendesk custom fields created in the tenant (one-shot): `docker compose exec zendesk-ado-sync node scripts/create-zendesk-fields.mjs`
 - Pilot ticket form configured (if needed): `scripts/clone-zendesk-form.mjs --source <id> --name "<name>" --agents-only --attach-ado`
+- Private Zendesk sidebar app installed/enabled with `backendBaseUrl`, `backendHost`, and secure `appSharedSecret`
 - Public URL + TLS path decided (Caddy site block for `<host>.jestais.com` uses the existing wildcard cert)
 - Zendesk webhook registered: `scripts/register-zendesk-webhook.mjs` (redacts the signing secret by default; use `--print-secret` only in a private terminal when setting `ZENDESK_WEBHOOK_SECRET`, then restart container)
 - ADO service-hook subscriptions registered: `scripts/register-ado-service-hook.mjs` (requires `ADO_WEBHOOK_PUBLIC_URL` + matching `DEVAZURE_WEBHOOK_USERNAME` / `DEVAZURE_WEBHOOK_PASSWORD` in `.env`)
-- First end-to-end test: create a ticket on the pilot form, watch `docker compose logs -f` for the create + writeback + reverse-sync cycle
+- First end-to-end test: create/link/unlink/comment on the pilot form, watch `docker compose logs -f` for sidebar actions, Zendesk comment sync, ADO reverse-sync, and internal-note attribution
+- Latest readiness evidence: [docs/reports/2026-04-24-client-readiness-smoke.md](./docs/reports/2026-04-24-client-readiness-smoke.md)

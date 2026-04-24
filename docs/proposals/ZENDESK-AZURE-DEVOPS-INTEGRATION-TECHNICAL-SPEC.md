@@ -2,7 +2,8 @@
 
 **Document Owner:** Musa Al Salem  
 **Prepared On:** 2026-04-15  
-**Status:** Discovery-backed draft  
+**Updated On:** 2026-04-24
+**Status:** Pilot-ready implementation baseline
 **Project Type:** Standalone integration service  
 **Audience:** Support Operations, Engineering, Delivery, Implementation Team
 
@@ -13,7 +14,8 @@ This document translates the business requirements for a Zendesk to Azure DevOps
 It is based on:
 
 - The business requirements received on 2026-04-15
-- The current standalone starter service in this project
+- The current deployed implementation on `main`
+- The client-readiness smoke report in [2026-04-24-client-readiness-smoke.md](../reports/2026-04-24-client-readiness-smoke.md)
 - The SOTA research and knowledge-gap review in [2026-04-15-zendesk-ado-sota-research-gap-analysis.md](../reports/2026-04-15-zendesk-ado-sota-research-gap-analysis.md)
 - The consolidated solution design in [ZENDESK-ADO-FULL-SOLUTION-DESIGN.md](./ZENDESK-ADO-FULL-SOLUTION-DESIGN.md)
 - Live tenant discovery performed against:
@@ -22,23 +24,31 @@ It is based on:
 
 ## 2. Current Delivery Baseline
 
-The current codebase is a safe one-way starter. It already supports:
+The current codebase has moved past the starter phase. As of 2026-04-24, `main` supports:
 
 - Secure Zendesk webhook intake
 - Webhook signature verification
 - Deterministic work item lookup by Zendesk ticket reference
 - Azure DevOps work item create or update flow
 - Dry-run mode for rollout safety
-
-The business requirement is broader than the starter and requires:
-
+- Oracle-backed durable ledger, worker queue, attempts, audit log, comment map, attachment map, and iteration cache
 - New Azure DevOps work item creation from Zendesk
-- Linking to an existing Azure DevOps work item
-- Bidirectional status synchronization
+- Linking to an existing Azure DevOps work item by ID or URL
+- Unlinking with recoverable/compensating cross-system behavior
+- Bidirectional status, sprint, ETA, and sync-health synchronization
 - Selective bidirectional comment synchronization
-- Attachment transfer
-- Retry handling and auditability
-- Field and workflow mapping aligned to the client tenant
+- Zendesk attachment transfer into ADO work items with size and host allow-list controls
+- Private Zendesk audit notes for create, link, unlink, and sidebar comment actions
+- Sidebar action actor attribution from verified ZAF JWT claims
+- Token-protected dead-job inspection and manual retry endpoints
+- Private Zendesk sidebar app as the primary support analyst workspace
+
+Remaining rollout dependencies are operational rather than core-code blockers:
+
+- stable public URL for `zendesk-sync.jestais.com` or an equivalent approved hostname
+- business approval for widening beyond the pilot form
+- final approval for any future ADO field-changing actions from Zendesk
+- final routing approvals for the remaining lower-confidence product families
 
 ## 2.1 Deployment Direction
 
@@ -82,9 +92,9 @@ Confirmed package decisions (based on SOTA inventory — see `docs/reports/2026-
 - `oracledb` v6.10 in thin mode (no Oracle Instant Client needed) — copy pool + query pattern from `myreports/lib/oracle.ts`
 - `node-zendesk` v6 for all outbound Zendesk API calls (ticket fields, comments, webhooks, triggers) — 65K+ weekly downloads, recommended by Zendesk's own docs, only actively maintained Node.js client
 - `azure-devops-node-api` v15 for TypeScript type imports only (`import type`) — keep our hand-rolled fetch + Basic auth layer for actual API calls, because the SDK does not cover service hooks and its HTTP layer adds unnecessary complexity
-- `node-cron` for scheduling worker polling and reconciliation runs
+- `node-cron` v4 for scheduling worker polling, stale-job recovery, and reconciliation runs
 - No Zendesk webhook signature package (none exist; our `zendesk-signature.ts` is correct)
-- No ADO service hook validation package (none exist; trivial HMAC-SHA1)
+- No ADO service hook validation package is required; the v1 receiver uses HTTP Basic auth shared with the ADO service-hook subscription
 - Bidirectional sync follows the Truto.one 5-pillar pattern: origin tagging, fingerprint comparison, sync journal, composite dedup key, field ownership rules
 
 What this means in practice:
@@ -164,11 +174,11 @@ Important permission finding:
 - a direct project-creation permission probe succeeded and created a temporary private project named `codex-access-check-delete-me`
 - current conclusion: the working user now has confirmed collection-admin capability, even though the exact upgraded paid access tier was not cleanly readable from the CLI entitlement endpoint
 
-Still unverified:
+Current rollout note:
 
-- Attachment upload permission
-- Service hook create or manage permission
-- Process administration or workflow customization rights
+- Attachment upload has been live-smoked through the Zendesk private `#sync` attachment path.
+- ADO service-hook delivery is operational through the current pilot tunnel and is backed by the 15-minute reconciler.
+- Process administration and workflow customization rights are not required for the current v1 runtime.
 
 ## 4. Live Tenant Findings
 
@@ -332,7 +342,7 @@ Recommended per-field ownership:
 
 ## 6. Recommended Zendesk Integration Fields
 
-Recommended machine-owned Zendesk fields:
+Implemented machine-owned Zendesk fields:
 
 | Zendesk Field | Purpose | Ownership |
 | --- | --- | --- |
@@ -347,10 +357,11 @@ Recommended machine-owned Zendesk fields:
 | `ADO Last Sync At` | Timestamp of last successful sync | Integration-owned |
 | `ADO Sync Health` | `ok`, `warning`, `error`, or similar integration state | Integration-owned |
 
-Recommended UX rule:
+Current UX rule:
 
 - These fields should be treated as integration-managed, not manually maintained by agents.
-- If Zendesk cannot reliably enforce agent read-only behavior for the chosen field type and plan, the authoritative display should live in a Zendesk sidebar app while the fields remain present for reporting and automation.
+- The authoritative agent experience lives in the Zendesk sidebar app.
+- The fields remain as a compact integration-owned projection for reporting, fallback, and easy operator inspection on the pilot form.
 
 Recommended description strategy:
 
@@ -422,12 +433,13 @@ Recommended implementation rule:
 
 ## 9. Comment Synchronization Policy
 
-Recommended policy:
+Implemented policy:
 
 - Zendesk public replies -> Azure DevOps discussion comments
 - Zendesk private notes -> do not sync by default
 - Zendesk private notes tagged with `#sync` -> Azure DevOps discussion comment
 - Azure DevOps discussion comments -> Zendesk internal notes, bounded by a configurable recent-comment window
+- Sidebar `Update` tab comments -> Azure DevOps Work Item Comments API, plus Zendesk internal audit note
 
 Recommended guardrails:
 
@@ -442,7 +454,7 @@ Recommended guardrails:
 
 ## 10. Attachment Synchronization Policy
 
-Recommended policy:
+Implemented policy:
 
 - Sync Zendesk attachments that appear on escalated comments or ticket creation payloads
 - Upload files to Azure DevOps as attachments and link them to the work item
@@ -451,9 +463,9 @@ Recommended policy:
 - Download only HTTPS attachment URLs from the configured Zendesk tenant host or Zendesk content CDN (`*.zdusercontent.com`)
 - Follow attachment redirects manually and re-validate every redirect target before downloading
 
-Open verification item:
+Latest verification:
 
-- Run one live attachment smoke test with the integration PAT before declaring attachment sync production-ready.
+- 2026-04-24 smoke confirmed a private `#sync` note plus attachment created the expected ADO comment and attachment relation.
 
 ## 11. Triggering Strategy
 
@@ -548,13 +560,13 @@ Authentication direction:
 
 ## 13.1 Minimal Operational Surface
 
-Recommended non-UI operational endpoints or capabilities:
+Implemented non-UI operational endpoints or capabilities:
 
 - health check endpoint
 - readiness check endpoint
-- failed-sync inspection by correlation ID or ticket/work item reference
-- manual replay action for retriable failures
-- audit query surface for recent sync actions
+- failed-sync inspection through token-protected `GET /internal/jobs/dead`
+- manual replay action through token-protected `POST /internal/jobs/:id/retry`
+- Oracle `AUDIT_LOG` rows for recent sync actions; a dedicated audit-query API can be added later if operators need it
 
 This should stay minimal in v1, but it must exist so the integration is supportable after go-live.
 
@@ -630,37 +642,27 @@ Recommended UI pattern:
 - Keep the machine-owned `ADO *` fields off the normal support form unless testing, operator workflows, or reporting require them.
 - Avoid a native-field-first rollout so the client only needs one training and one change-management pass.
 
-## 15. Open Decisions Before Full Implementation
+## 15. Open Decisions Before Wider Rollout
 
 - Confirm whether the client-facing name should use `Azure DevOps`, `ADO`, or `DevAzure`
-- Approve the exact Zendesk escalation tag and trigger conditions
-- Approve the `Case Type -> Work Item Type` mapping
-- Approve `Org Name -> Client` and `Product -> Product` crosswalk tables
-- Approve the final `ADO Status` label set
+- Approve the exact Zendesk escalation tag and trigger conditions for non-pilot rollout
+- Approve remaining `Case Type -> Work Item Type` mapping refinements
+- Approve `Org Name -> Client` and `Product -> Product` crosswalk tables for stricter ADO picklist writes
 - Decide whether `Developer` should map to `System.AssignedTo`
-- Decide whether `ADO ETA` should prefer target date, sprint finish date, or a fallback hierarchy
 - Decide whether the new integration coexists with Scopus or eventually replaces part of that flow
 - Ask Azure DevOps IT to provision the dedicated integration identity with:
   - `Basic + Test Plans` or `Visual Studio Enterprise`
   - `Project Collection Administrators`
-- Confirm whether Azure DevOps service hooks can be created in the target project
-- Confirm Azure DevOps attachment upload permission
-- Confirm Oracle schema availability, credentials, and network reachability from the target Linux host
-- Decide whether AQ should stay a later enhancement and explicitly lock Oracle-backed worker tables for v1
 - Confirm whether v1 supports one primary linked work item or multiple linked work items per Zendesk ticket
+- Replace the temporary Cloudflare tunnel with the stable public URL before broad client usage
+- Approve whether support analysts may update ADO fields beyond discussion comments from Zendesk
 
-## 16. Recommended Next Build Steps
+## 16. Recommended Next Steps
 
-1. Confirm Oracle schema access and lock Oracle-backed worker tables as the default v1 worker model unless DBA enablement changes.
-2. Ask Azure DevOps IT to provision the elevated integration identity and return the account details.
-3. Confirm the Azure DevOps auth path for that identity and capture credentials securely.
-4. Finalize the field crosswalk table with business-approved values.
-5. Create the new Zendesk integration-owned fields, starting with `ADO Status`, `ADO Status Detail`, and `ADO ETA`.
-6. Add sprint visibility fields: `ADO Sprint`, `ADO Sprint Start`, and `ADO Sprint End`.
-7. Finalize the status matrix using the existing Zendesk and Azure DevOps tenant vocabulary.
-8. Start the first agent-facing release on the private Zendesk sidebar app package and use fields plus private notes as storage and audit plumbing behind it.
-9. Add an integration ledger for idempotency, retries, manual replay, and audit.
-10. Implement Zendesk to Azure DevOps create and update using the confirmed required ADO fields.
-11. Add reverse synchronization for `ADO Status`, `ADO Status Detail`, sprint fields, `ADO ETA`, and significant internal updates.
-12. Add selective comment and attachment syncing with loop prevention.
-13. Validate end-to-end behavior in a sandbox or pilot project before production rollout.
+1. Run a controlled client pilot with two support analysts on `Musa ADO Form Testing`.
+2. Observe create/link/unlink/comment behavior, browser console, backend logs, and Zendesk internal notes during the pilot.
+3. Replace the temporary Cloudflare tunnel with the stable public backend URL and re-register Zendesk/ADO hooks against it.
+4. Repeat the smoke suite after the stable URL cutover.
+5. Finalize the field crosswalk table for stricter `Custom.Client`, `Custom.Product`, assignee, and remaining routing writes.
+6. Decide which ADO field-changing actions, if any, support analysts can perform from Zendesk after v1.
+7. Widen `ZENDESK_APP_ALLOWED_FORM_IDS` only after business sign-off and a successful pilot review.

@@ -1,8 +1,9 @@
 # Zendesk ADO Full Solution Design
 
-**Status:** Draft for implementation readiness  
+**Status:** Pilot-ready solution baseline
 **Prepared On:** 2026-04-15  
-**Purpose:** Consolidate the full end-to-end design for the client-deliverable Zendesk to Azure DevOps integration before deployment planning and build execution.
+**Updated On:** 2026-04-24
+**Purpose:** Consolidate the full end-to-end design for the client-deliverable Zendesk to Azure DevOps integration and keep it aligned with the current deployed code.
 
 ## 1. Purpose
 
@@ -32,11 +33,13 @@ The solution must allow support agents to stay in Zendesk while still being able
 
 - create a new Azure DevOps issue from a Zendesk ticket
 - link a Zendesk ticket to an existing Azure DevOps work item
+- unlink a Zendesk ticket from an Azure DevOps work item with an audit trail
 - monitor engineering status from Zendesk
 - see whether the issue is in a sprint
 - see sprint start and end dates
 - see ETA from engineering planning data
 - receive important engineering updates as Zendesk private notes
+- add ADO discussion comments from Zendesk without opening ADO
 
 The solution must also:
 
@@ -54,7 +57,7 @@ The following are explicitly not required for v1:
 
 - replacing Zendesk native support status with Azure DevOps state
 - exposing the full raw ADO area-path tree to agents
-- building a rich Zendesk sidebar app before the workflow is validated
+- exposing unrestricted ADO field editing from Zendesk before ownership rules are approved
 - introducing new custom fields in Azure DevOps unless a later reporting need requires them
 - introducing Redis, PostgreSQL, or Temporal just for orchestration
 - broad multi-project intelligent routing beyond the approved v1 subset
@@ -127,7 +130,7 @@ Current design implication:
 
 ## 5. Solution Overview
 
-The integration will be a standalone Node.js and TypeScript service that exposes webhook endpoints, executes durable sync jobs, persists state in Oracle, and updates Zendesk and Azure DevOps according to deterministic routing and mapping rules.
+The integration is a standalone Node.js and TypeScript service that exposes webhook endpoints, signed sidebar endpoints, executes durable sync jobs, persists state in Oracle, and updates Zendesk and Azure DevOps according to deterministic routing and mapping rules.
 
 High-level architecture:
 
@@ -154,6 +157,7 @@ Operationally:
 - Azure DevOps drives engineering-state, sprint, and comment updates
 - Oracle stores the durable sync ledger and work queue
 - scheduled reconciliation repairs missed events and refreshes sprint-driven ETA data
+- the Zendesk sidebar app is the primary analyst workspace for create/link/unlink/status/activity/update
 
 ## 6. Major Components
 
@@ -170,7 +174,7 @@ The service should expose these route families:
 
 Responsibilities (follows the hookdeck canonical webhook handler sequence):
 
-1. verify webhook signature (Zendesk HMAC-SHA256 or ADO HMAC-SHA1)
+1. verify webhook authentication (Zendesk HMAC-SHA256 or ADO Basic auth)
 2. parse payload
 3. check idempotency: compute dedup key, check against `sync_event` table
 4. persist inbound event to `sync_event` and insert `sync_job`
@@ -568,7 +572,7 @@ Rules:
 - no dated sprint -> keep sprint fields blank
 - dated sprint -> populate sprint name and dates
 - ETA hierarchy:
-  1. explicit target date if later approved
+  1. explicit target date from `DEVAZURE_TARGET_DATE_FIELD`
   2. sprint end date
   3. blank
 
@@ -580,8 +584,9 @@ V1 policy:
 
 - Zendesk public reply -> ADO discussion
 - Zendesk private note -> no sync by default
-- Zendesk private note with explicit sync marker -> eligible for ADO sync
+- Zendesk private note with explicit `#sync` marker -> eligible for ADO sync
 - ADO discussion -> Zendesk private note
+- sidebar `Update` tab comment -> ADO discussion plus Zendesk internal audit note
 
 All mirrored notes must include origin context:
 
@@ -598,9 +603,9 @@ V1 attachment behavior:
 - ADO-originated attachments may be mirrored back selectively later
 - all attachment sync actions must be durable and retryable
 
-Open implementation check:
+Latest implementation check:
 
-- verify ADO attachment upload permission before calling attachment sync production-ready
+- 2026-04-24 smoke verified Zendesk private `#sync` note attachment upload into ADO.
 
 ## 13. Oracle Persistence Design
 
@@ -690,37 +695,40 @@ Suggested contents:
 - outbound request metadata
 - error summary
 
-### `comment_sync_map`
+### `COMMENT_SYNC_MAP`
 
 Purpose:
 
 - loop prevention and dedupe for mirrored comments
 
-Suggested contents:
+Implemented contents:
 
 - source system
 - source comment id
 - target system
 - target comment id
-- link id
-- sync marker
+- Zendesk ticket id
+- ADO work item id
+- created at
 
-### `attachment_sync_map`
+### `ATTACHMENT_SYNC_MAP`
 
 Purpose:
 
 - dedupe for mirrored attachments
 
-Suggested contents:
+Implemented contents:
 
 - source system
 - source attachment id
 - target system
-- target attachment id
-- checksum if available
-- link id
+- target attachment URL
+- Zendesk ticket id
+- ADO work item id
+- file name
+- created at
 
-### `iteration_cache`
+### `ITERATION_CACHE`
 
 Purpose:
 
@@ -782,7 +790,7 @@ Scheduling:
 
 - `node-cron` triggers worker polling every N seconds (configurable, default 10s)
 - Separate `node-cron` job triggers reconciliation every 15 minutes
-- Stale job sweep runs on reconciliation cycle: reset jobs stuck in `PROCESSING` for >5 minutes back to `PENDING`
+- Stale job sweep runs every 5 minutes: reset jobs stuck in `PROCESSING` for >5 minutes back to `PENDING`
 
 If a worker crashes mid-job, Oracle automatically rolls back the transaction and releases the `FOR UPDATE` lock, making the job available for the next poll cycle.
 
@@ -919,14 +927,13 @@ Assumed live-host shape:
 
 - final public hostname for the integration
 - final production integration-user credentials in ADO
-- whether attachment sync is full v1 or controlled pilot v1
 - whether `BI` and `Reports` should route into `Vision Analytics` in v1
 - whether multiple ADO links per Zendesk ticket are ever needed later
-- whether a future sidebar app is required after pilot feedback
+- whether support analysts may update ADO fields beyond discussion comments from Zendesk
 
-## 20. Build-Ready Conclusion
+## 20. Pilot-Ready Conclusion
 
-The design is now strong enough to move into implementation planning.
+The design has moved from implementation planning into pilot-ready operation. The current code, private Zendesk app, Oracle schema, backend worker, and live smoke evidence cover the core BRD workflow.
 
 What is already solid:
 
@@ -942,8 +949,8 @@ What is already solid:
 
 What remains for the next phase:
 
-- turn this design into an execution plan
-- define the Oracle schema DDL
-- define the service module boundaries
-- define the exact Zendesk API asset-creation sequence
-- define the exact live-host deployment package
+- run the controlled client pilot with two support analysts
+- replace the temporary Cloudflare tunnel with the stable public backend URL
+- repeat the live smoke after the stable URL cutover
+- finalize remaining routing and field-crosswalk approvals
+- decide whether to add any ADO field-changing actions to the sidebar after v1

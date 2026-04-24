@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | `oracledb` | `^6.10.0` | Oracle connection pool + queries, thin mode (no Instant Client). `fetchAsString = [CLOB]` set at pool init so `SYNC_JOB.PAYLOAD` deserializes as string |
 | `node-zendesk` | `^6.0.1` | Zendesk API client for custom field CRUD, ticket updates, private notes, webhook management |
-| `node-cron` | `^3.0.3` | Scheduling: worker poll (10s), stale-job recovery (5m), reconciler (every 15m at `:07 :22 :37 :52`) |
+| `node-cron` | `^4.2.1` | Scheduling: worker poll (10s), stale-job recovery (5m), reconciler (every 15m at `:07 :22 :37 :52`) |
 
 ## Dev Dependencies
 
@@ -31,7 +31,7 @@
 | File | Purpose |
 | --- | --- |
 | `src/index.ts` | Boot: load config, create Oracle pool, initialize schema, start HTTP server, start cron tasks, wire SIGTERM/SIGINT |
-| `src/server.ts` | Raw HTTP: `/health`, `/healthz`, `/readyz`, `POST /webhooks/zendesk` (HMAC), `POST /webhooks/ado` (Basic auth) |
+| `src/server.ts` | Raw HTTP: `/health`, `/healthz`, `/readyz`, `POST /webhooks/zendesk` (HMAC), `POST /webhooks/ado` (Basic auth), `/app/ado/tickets/:id/*` signed sidebar routes, `/internal/jobs/*` operator routes |
 | `src/config.ts` | Env var loading + validation |
 | `src/types.ts` | `AppConfig` + shared data shapes |
 
@@ -47,9 +47,12 @@
 
 | File | Purpose |
 | --- | --- |
-| `src/devazure-client.ts` | ADO REST: WIQL lookup, create / update work items, `getWorkItem`, `getIteration`; typed `DevAzureHttpError` |
-| `src/lib/zendesk-api.ts` | Zendesk client wrapper: `updateTicketWithNote` (fields + private note in one call), ticket field / form CRUD |
+| `src/devazure-client.ts` | ADO REST: WIQL lookup, create / update work items, `getWorkItem`, `getIteration`, comments, attachments; bounded fetch and short retry handling |
+| `src/lib/zendesk-api.ts` | Zendesk client wrapper: `updateTicketWithNote` (fields + private note in one call), ticket field / form CRUD, latest-comment hydration, attachment download |
 | `src/lib/basic-auth.ts` | Shared `buildBasicAuthHeaderValue` used by the ADO client and webhook receiver |
+| `src/lib/zaf-auth.ts` | Verifies signed ZAF JWTs from the sidebar app |
+| `src/lib/sidebar-actor.ts` | Normalizes verified Zendesk current-user claims for audit attribution |
+| `src/lib/zendesk-ticket-scope.ts` | Enforces backend ticket-form scope for sidebar routes and webhooks |
 
 ### Sync pipeline
 
@@ -58,6 +61,7 @@
 | `src/sync-planner.ts` | Build JSON Patch operations + required ADO fields from a ticket event |
 | `src/routing.ts` | V1 routing matrix: 13 product families → project + area path + `Custom.Product` |
 | `src/job-handlers.ts` | `handleSyncZendeskToAdo` (create / update) + `handleSyncAdoStateToZendesk` (reverse) |
+| `src/app-handlers.ts` | Sidebar summary/create/link/unlink/comment handlers and compact ADO projection builder |
 | `src/ado-status.ts` | Status derivation, status-detail templates, iteration metadata cache, SHA-256 fingerprint |
 | `src/worker.ts` | Durable worker: `SELECT FOR UPDATE SKIP LOCKED`, retries, stale recovery; exports `JOB_TYPES` |
 | `src/reconciler.ts` | 15-min cron polling safety net for missed ADO service-hook events |
@@ -67,7 +71,7 @@
 | File | Purpose |
 | --- | --- |
 | `src/lib/oracle.ts` | Pool singleton, `query` / `execute` / `executeMany`, `healthCheck`, `closePool`, `safeExecuteDDL` |
-| `src/schema.ts` | Idempotent DDL: `SYNC_LINK`, `SYNC_EVENT`, `SYNC_JOB`, `SYNC_ATTEMPT`, `AUDIT_LOG`, `ITERATION_CACHE` |
+| `src/schema.ts` | Idempotent DDL: `SYNC_LINK`, `SYNC_EVENT`, `SYNC_JOB`, `SYNC_ATTEMPT`, `AUDIT_LOG`, `COMMENT_SYNC_MAP`, `ATTACHMENT_SYNC_MAP`, `ITERATION_CACHE` |
 | `src/zendesk-field-ids.ts` | Tenant-specific field ID map (Jestais) |
 | `src/types/oracledb.d.ts` | Ambient type declarations for the subset of `oracledb` we use |
 
@@ -79,6 +83,12 @@
 | `test/sync-planner.test.mjs` | Create plan shape, destructive-event noop |
 | `test/ado-status.test.mjs` | Status derivation, detail templates, fingerprint stability |
 | `test/ado-event-parser.test.mjs` | ADO payload parsing + shape validation |
+| `test/app-handlers.test.mjs` | Sidebar summary/create/link/unlink/comment behavior, projection, scope-safe edge cases |
+| `test/zendesk-ticket-scope.test.mjs` | Approved-form and out-of-scope ticket checks |
+| `test/devazure-client.test.mjs` | ADO client timeouts, retry behavior, comments, attachments |
+| `test/worker.test.mjs` | Retry/dead-job behavior |
+| `test/zaf-auth.test.mjs` | ZAF JWT verification and failure paths |
+| `test/zendesk-api.test.mjs` | Zendesk API helpers, comment hydration, attachment download guardrails |
 
 ### Admin scripts (`scripts/`)
 
@@ -109,7 +119,7 @@
 | Queue / worker | Oracle-backed worker tables with `SELECT FOR UPDATE SKIP LOCKED`; polling every 10 s, 50-job batch cap |
 | Dedup | `SYNC_EVENT.DEDUP_KEY` unique constraint; `ORA-00001` catch instead of `SELECT`-then-`INSERT` (TOCTOU-free) |
 | Loop prevention | Origin-stamped private-note marker `[Synced by integration]`; SHA-256 fingerprint on `SYNC_LINK.LAST_ADO_FINGERPRINT` short-circuits redundant writes |
-| Scheduler | `node-cron` — worker poll `*/10 * * * * *`, stale recovery `*/5 * * * *`, reconciler `7,22,37,52 * * * *` |
+| Scheduler | `node-cron` v4 — worker poll `*/10 * * * * *`, stale recovery `*/5 * * * *`, reconciler `7,22,37,52 * * * *` |
 | Deployment | Docker on client Linux host; separate stack at `/srv/stacks/zendesk-ado-sync/`; loopback bind + host-level Caddy |
 
 ## Packages Explicitly Not Adopted
@@ -137,7 +147,7 @@
 | Linux target host | `ubuntu-docker-host` (172.16.20.97), Ubuntu 24.04, user `admin` (in `sudo` + `docker` groups) |
 | Host networking | `127.0.0.1:8787` loopback; `srv-db-100` pinned to `172.16.25.63` via `extra_hosts` |
 | Secrets | Real credentials only in `/srv/stacks/zendesk-ado-sync/.env` on the host and `~/Projects/devazure-zendesk-sync/.env` locally — never in committed files |
-| Public URL | Pending IT — DNS for `zendesk-sync.jestais.com` + TCP 443 port-forward to the host |
+| Public URL | Pilot uses Cloudflare quick tunnel plus tunnel guardian; stable URL pending IT — DNS for `zendesk-sync.jestais.com` + TCP 443 port-forward to the host |
 
 ## Dev Tools
 

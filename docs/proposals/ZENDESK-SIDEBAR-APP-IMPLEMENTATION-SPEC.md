@@ -1,6 +1,6 @@
 # Zendesk Sidebar App Implementation Spec
 
-**Status:** Pilot implementation uploaded and hardening smoke in progress
+**Status:** Pilot-ready implementation; client-readiness smoke passed
 **Prepared On:** 2026-04-17  
 **Updated On:** 2026-04-24
 **Purpose:** Define the concrete package layout, UI states, backend contract, rollout rules, hardening controls, and acceptance criteria for the private Zendesk sidebar app.
@@ -103,7 +103,7 @@ zendesk-sidebar-app/
 
 ## 4. Current Implementation Scope
 
-The first scaffolded version has been expanded into the pilot implementation.
+The first scaffolded version has been expanded into the pilot implementation and live-smoked in Zendesk.
 
 It now:
 
@@ -704,12 +704,14 @@ npm --prefix zendesk-sidebar-app audit --omit=dev
 git diff --check
 ```
 
-Latest local result on 2026-04-23:
+Latest local and live result on 2026-04-24:
 
-- root test suite: 61 tests, 54 passing, 7 skipped
-- sidebar Vitest suite: 12 passing
-- sidebar production build succeeds; `TicketSideBar.js` is about `79.66 kB` / `23.43 kB gzip`
+- root test suite: 77 tests, 70 passing, 7 skipped
+- sidebar Vitest suite: 14 passing
+- sidebar production build succeeds; `TicketSideBar.js` is about `84.06 kB` / `24.65 kB gzip`
 - root and sidebar production audits report `0 vulnerabilities`
+- live signed/API smoke passed create, link, unlink, sidebar ADO discussion comment, Zendesk public reply sync, private `#sync` attachment sync, ADO discussion back-sync, ADO state back-sync, out-of-scope route rejection, and actor attribution
+- authenticated browser UI smoke confirmed the linked workspace, `Unlink ADO`, `Summary`, `Activity`, and `Update` tabs render in Zendesk
 
 ## 13. Concrete Milestones
 
@@ -778,9 +780,9 @@ Done.
 
 Still required before wider rollout:
 
-- refreshed private-app package uploaded
-- visual smoke completed in Zendesk on the pilot form
-- action timing/request counts confirmed against live Zendesk and backend logs
+- stable public backend URL cutover from the temporary Cloudflare quick tunnel
+- repeat smoke after the stable URL swap
+- controlled pilot completion by at least two support analysts
 - rollout beyond pilot form explicitly approved
 
 ### Milestone 7. Analyst ADO workspace
@@ -823,11 +825,12 @@ The current implementation should satisfy all of the following:
 - Current backend field IDs:
   [src/zendesk-field-ids.ts](/Users/musaalsalem/Projects/devazure-zendesk-sync/src/zendesk-field-ids.ts:1)
 
-## 16. Immediate Next Build Step
+## 16. Immediate Next Step
 
-After the 2026-04-23 live endpoint validation and smoke pass, the next step should be:
+After the 2026-04-24 readiness smoke pass, the next step should be:
 
-1. replace the temporary tunnel URL with the stable public backend URL
-2. repeat smoke create/link/unlink/comment behind the pilot-form gate after the stable URL swap
-3. keep direct minimal Zendesk field reads as a fallback only for backend failures
-4. decide which ADO field-changing actions support is allowed to perform from Zendesk
+1. run the controlled client pilot with two support analysts on `Musa ADO Form Testing`
+2. capture any workflow confusion or missing fields before widening scope
+3. replace the temporary tunnel URL with the stable public backend URL
+4. repeat smoke create/link/unlink/comment behind the pilot-form gate after the stable URL swap
+5. decide which ADO field-changing actions support is allowed to perform from Zendesk after v1
