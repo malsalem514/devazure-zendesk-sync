@@ -54,11 +54,13 @@ The stack carries `com.centurylinklabs.watchtower.enable=true`. Once the image s
 After the service is reachable on its public URL:
 
 ```sh
+export ADO_WEBHOOK_PUBLIC_URL="https://zendesk-sync.example.com/webhooks/ado"
 docker compose exec zendesk-ado-sync \
+  env ADO_WEBHOOK_PUBLIC_URL="$ADO_WEBHOOK_PUBLIC_URL" \
   node --env-file-if-exists=.env scripts/register-ado-service-hook.mjs
 ```
 
-This creates `workitem.updated` and `workitem.created` subscriptions on the target project. If it fails with 403, the polling reconciler (`src/reconciler.ts`) serves as fallback — no action needed.
+This creates `workitem.updated` and `workitem.created` subscriptions on the target project. The URL must point to the same public backend host used by Zendesk, with `/webhooks/ado` as the path. If this variable is missing or registration fails with 403, the polling reconciler (`src/reconciler.ts`) serves as fallback, but ADO-origin notifications will not be near-real-time.
 
 ## Tunnel guardian
 

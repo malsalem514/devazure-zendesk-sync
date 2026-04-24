@@ -283,18 +283,24 @@ Flow:
    - subject
    - issue details
    - repro steps
+   - system info
+   - final result
    - acceptance criteria
    - support findings
    - Zendesk backlink
-6. The service creates the ADO work item.
-7. The service persists the new link in Oracle.
-8. The service updates Zendesk:
+6. The planner also writes sidebar handoff sections into visible native ADO fields when the target work item type supports them:
+   - Bug: `Microsoft.VSTS.TCM.ReproSteps`, `Microsoft.VSTS.TCM.SystemInfo`, `Microsoft.VSTS.Common.AcceptanceCriteria`, `Custom.FinalResluts`
+   - Task: `Microsoft.VSTS.Common.AcceptanceCriteria`, `Custom.FinalResults`
+   - User Story: `Microsoft.VSTS.Common.AcceptanceCriteria`
+7. The service creates the ADO work item.
+8. The service persists the new link in Oracle.
+9. The service updates Zendesk:
    - `ADO Work Item ID`
    - `ADO Work Item URL`
    - `ADO Status`
    - `ADO Status Detail`
    - sync metadata
-9. The service writes a Zendesk private note confirming the ADO link.
+10. The service writes a Zendesk private note confirming the ADO link.
 
 ## 7.2 Zendesk Links To An Existing ADO Item
 
@@ -528,6 +534,11 @@ V1 should reuse existing ADO fields:
 - `Custom.Status`
 - `Custom.CRF`
 - `Custom.XREF`
+- `Microsoft.VSTS.TCM.ReproSteps` for Bug handoff repro steps
+- `Microsoft.VSTS.TCM.SystemInfo` for Bug handoff system information
+- `Microsoft.VSTS.Common.AcceptanceCriteria` for Bug, Task, and User Story acceptance criteria
+- `Custom.FinalResluts` for Bug final result, matching the existing ADO field spelling
+- `Custom.FinalResults` for Task final result
 - existing iteration metadata
 
 Traceability should be preserved via:

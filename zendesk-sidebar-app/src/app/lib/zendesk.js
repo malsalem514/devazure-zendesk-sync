@@ -1,11 +1,7 @@
-import { CUSTOM_FIELD_PATHS, PILOT_FORM_ID } from '../config.js'
+import { CUSTOM_FIELD_PATHS, PILOT_FORM_ID, TICKET_FIELD_IDS } from '../config.js'
 import { fetchSummary } from './backend.js'
 
-const DISPLAYED_FIELD_IDS = [
-  50877199973651,
-  50877235285395,
-  50847215571859
-]
+const DISPLAYED_FIELD_IDS = Object.values(TICKET_FIELD_IDS)
 
 const FALLBACK_FIELD_KEYS = ['devFunnelNumber', 'adoWorkItemId', 'adoWorkItemUrl']
 

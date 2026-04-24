@@ -178,7 +178,7 @@ Important permission finding:
 Current rollout note:
 
 - Attachment upload has been live-smoked through the Zendesk private `#sync` attachment path.
-- ADO service-hook delivery is operational through the current pilot tunnel and is backed by the 15-minute reconciler.
+- ADO reverse sync is operational through the 15-minute reconciler and through ADO service hooks on the current pilot tunnel. For production rollout, `ADO_WEBHOOK_PUBLIC_URL` must be set to the stable public `/webhooks/ado` endpoint and the two ADO service-hook subscriptions must be registered or updated to that URL.
 - Process administration and workflow customization rights are not required for the current v1 runtime.
 
 ## 4. Live Tenant Findings

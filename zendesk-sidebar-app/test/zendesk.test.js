@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CUSTOM_FIELD_PATHS, PILOT_FORM_ID } from '../src/app/config.js'
+import { CUSTOM_FIELD_PATHS, PILOT_FORM_ID, TICKET_FIELD_IDS } from '../src/app/config.js'
 import {
   applyBackendSummaryToSnapshot,
   loadTicketSnapshot,
@@ -214,6 +214,9 @@ describe('subscribeToTicketChanges', () => {
     subscribeToTicketChanges(client, () => {})
 
     expect(eventNames).toContain('ticket.form.id.changed')
+    expect(eventNames).toContain(`ticket.custom_field_${TICKET_FIELD_IDS.adoStatus}.changed`)
+    expect(eventNames).toContain(`ticket.custom_field_${TICKET_FIELD_IDS.adoStatusDetail}.changed`)
+    expect(eventNames).toContain(`ticket.custom_field_${TICKET_FIELD_IDS.adoLastSyncAt}.changed`)
     expect(eventNames).not.toContain('ticket.subject.changed')
   })
 })

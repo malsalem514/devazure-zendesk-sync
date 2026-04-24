@@ -62,7 +62,8 @@ Out of scope for the starter:
 
 - Zendesk ticket ID -> DevAzure tag `zendesk:id:<ticket-id>`
 - Zendesk subject -> `System.Title`
-- Zendesk description and key metadata -> `System.Description`
+- Zendesk description, key metadata, and sidebar handoff sections -> `System.Description`
+- Sidebar handoff sections -> supported native ADO fields where available, including Bug repro steps/system info/final result and shared acceptance criteria
 - Zendesk priority -> `Microsoft.VSTS.Common.Priority`
 - Zendesk status and tags -> `System.Tags`
 - Zendesk ticket URL -> DevAzure hyperlink relation when base URL is configured

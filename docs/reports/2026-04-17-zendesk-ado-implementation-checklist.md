@@ -47,6 +47,7 @@ Current live state:
 
 - [x] Zendesk subject -> `System.Title`
 - [x] Zendesk description and latest comment -> `System.Description`
+- [x] Sidebar create handoff sections -> `System.Description` plus supported native ADO form fields (`Microsoft.VSTS.TCM.ReproSteps`, `Microsoft.VSTS.TCM.SystemInfo`, `Microsoft.VSTS.Common.AcceptanceCriteria`, `Custom.FinalResluts`/`Custom.FinalResults`)
 - [x] Zendesk tags/status/priority -> `System.Tags`
 - [x] Zendesk priority -> `Microsoft.VSTS.Common.Priority`
 - [x] Zendesk `Product` -> routed `System.AreaPath` and `Custom.Product` on create
@@ -86,11 +87,12 @@ This is the work needed so Zendesk stays up to date when ADO changes after initi
 
 ### 4.1 Ingress and event intake
 
-- [ ] Add ADO inbound webhook endpoint to the service
-- [ ] Register Azure DevOps service hooks for work item changed events
+- [x] Add ADO inbound webhook endpoint to the service
+- [x] Register Azure DevOps service hooks for work item changed events on the current pilot public endpoint
 - [ ] Verify the public ingress path used by ADO is stable, not the temporary quick tunnel, before production rollout
-- [ ] Add dedupe rules for ADO-originated events
-- [ ] Store raw ADO events in Oracle audit/event tables
+- [x] Add dedupe rules for ADO-originated events
+- [x] Store raw ADO events in Oracle audit/event tables
+- [x] Keep 15-minute reconciler fallback active until ADO service hooks are registered and stable
 
 ### 4.2 Linked item resolution
 

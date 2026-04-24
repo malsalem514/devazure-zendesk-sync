@@ -605,10 +605,11 @@ V1 notification behavior:
 - Zendesk triggers, assignee notifications, and followers remain the durable way to alert agents.
 - The Activity tab shows recent human ADO discussion and status context for agents already viewing the ticket.
 
-Optional future enhancement:
+Current best-effort app notification behavior:
 
 - Backend calls Zendesk Apps Notify with an `ado_update_available` event targeted to the ticket assignee when an ADO update arrives. This is enabled only when `ZENDESK_APP_NOTIFY_APP_ID` is configured.
 - The open sidebar listens for ZAF event `api_notification.ado_update_available`, filters by current ticket ID, shows a compact banner, and refreshes the summary only when the analyst clicks Refresh.
+- The sidebar also subscribes to compact ADO projection field changes (`ADO Status`, `ADO Status Detail`, `ADO Last Sync At`, sprint, ETA, health, and link fields) and schedules a backend summary refresh when reverse sync updates the Zendesk ticket. This keeps the sidebar from staying stale if the app-notify event is missed while the agent is in ADO or another tab.
 - The same ADO update must still be written to the ticket because Apps Notify is not durable and offline agents may miss it.
 
 ## 11. App To Backend Auth
@@ -854,7 +855,7 @@ The current implementation should satisfy all of the following:
 - The app reads the real pilot form ID and the minimal linked field IDs already documented in this project.
 - The app self-hides outside `Musa ADO Form Testing`.
 - The app shows a linked-item summary if the ticket has an active ADO link.
-- The create action opens the ADO handoff form and sends repro steps/system info/final result/acceptance criteria to the backend.
+- The create action opens the ADO handoff form and sends repro steps/system info/final result/acceptance criteria to the backend; create writes those values to `System.Description` and the supported native ADO fields for the created work item type.
 - The app actions call the backend and apply returned summaries after create/link/unlink/comment succeeds.
 - The backend independently verifies ticket form scope for every signed app route.
 - All app-to-backend, backend-to-Zendesk, and backend-to-ADO calls have bounded wait behavior.

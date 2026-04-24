@@ -116,7 +116,31 @@ The leanest useful first release is:
 - private notes for auditability and selected sync history
 - `COMMENT_SYNC_MAP` and `ATTACHMENT_SYNC_MAP` for dedupe
 
-## 7. Recommended Support Status Taxonomy
+## 7. ADO Create Handoff Field Mapping
+
+The sidebar create form collects optional support handoff sections before creating an ADO work item:
+
+- repro steps
+- system info
+- final result
+- acceptance criteria
+
+All populated sections are always preserved in the structured ADO `System.Description` together with the Zendesk ticket description or first ticket comment fallback. To match what engineers see on the ADO form, the backend also writes the same values into native ADO fields when those fields exist for the target work item type:
+
+| Sidebar Handoff Section | Bug Target | Task Target | User Story Target | Notes |
+| --- | --- | --- | --- | --- |
+| Repro steps | `Microsoft.VSTS.TCM.ReproSteps` | `System.Description` only | `System.Description` only | Task/User Story do not expose the Bug repro field in the current process |
+| System info | `Microsoft.VSTS.TCM.SystemInfo` | `System.Description` only | `System.Description` only | Bug-only native field |
+| Final result | `Custom.FinalResluts` | `Custom.FinalResults` | `System.Description` only | Bug field name is intentionally spelled as configured in ADO |
+| Acceptance criteria | `Microsoft.VSTS.Common.AcceptanceCriteria` | `Microsoft.VSTS.Common.AcceptanceCriteria` | `Microsoft.VSTS.Common.AcceptanceCriteria` | Shared native ADO field |
+
+Recommended v1 rules:
+
+- do not create new ADO custom fields solely for sidebar handoff until the client approves a process change
+- keep unsupported sections in `System.Description` rather than writing to fields that the ADO work item type does not support
+- continue stamping the Zendesk submitter in `System.Description`, Zendesk private notes, and Oracle audit rows
+
+## 8. Recommended Support Status Taxonomy
 
 Recommended sidebar/backend values:
 
@@ -137,7 +161,7 @@ Recommended v1 rule:
 - do not mirror raw ADO states one-for-one
 - optimize for what support agents need to understand quickly
 
-## 8. Recommended Status Detail Rules
+## 9. Recommended Status Detail Rules
 
 Status detail should be a machine-generated, support-friendly sentence returned by the backend summary.
 
@@ -158,7 +182,7 @@ Example values:
 - `Support ready`
 - `Resolved in Sprint 112`
 
-## 9. Recommended Status Derivation Rules
+## 10. Recommended Status Derivation Rules
 
 | ADO Condition | Support Status | Notes |
 | --- | --- | --- |
@@ -168,7 +192,7 @@ Example values:
 | Linked item is paused | `On Hold` | Covers the live ADO Bug state `On Hold`; status detail should read `On hold in ADO` unless a dated sprint adds context |
 | Linked item is engineering-complete | `Support Ready` | Covers `Resolved`, `Completed`, `Closed`, or equivalent accepted completion states |
 
-## 10. Sprint And ETA Rules
+## 11. Sprint And ETA Rules
 
 Return these in the backend sidebar model only when the linked ADO work item is assigned to an iteration with a real `startDate` or `finishDate`:
 
@@ -191,7 +215,7 @@ Recommended v1 behavior:
 - ETA usually mirrors sprint end
 - do not invent an ETA when there is no dated sprint and no explicit target date
 
-## 11. Field Ownership And Update Rules
+## 12. Field Ownership And Update Rules
 
 | Field | System Of Record | Who Updates It |
 | --- | --- | --- |
@@ -209,7 +233,7 @@ Operational rules:
 - unlink should be available only from the linked sidebar state and guarded by confirmation
 - detailed ongoing updates should be delivered through the app display, ADO discussions, selected private notes, and compact projection fields, not a visible field sprawl
 
-## 12. Linked Existing Item Rules
+## 13. Linked Existing Item Rules
 
 When a Zendesk ticket is linked to an existing ADO work item:
 
@@ -227,7 +251,7 @@ This is important because linked items may:
 - already be in a sprint
 - already be resolved
 
-## 13. Approved Sidebar App Behavior
+## 14. Approved Sidebar App Behavior
 
 When no ADO item is linked:
 
@@ -268,7 +292,7 @@ Form-scoping behavior during development and pilot:
 - react to `ticket.form.id.changed` so the app updates immediately when the agent switches forms
 - current pilot-form assumption: `Musa ADO Form Testing` (`50882600373907`)
 
-## 14. Recommended Private Note Templates
+## 15. Recommended Private Note Templates
 
 On create success:
 
@@ -300,14 +324,14 @@ On failure:
   - `We could not find that Azure DevOps work item. Check the ID or URL and try again.`
   - `This ticket is already linked to an Azure DevOps item. Open the current link or relink only if that workflow is approved.`
 
-## 15. Open Questions Before Wider Rollout
+## 16. Open Questions Before Wider Rollout
 
 - Should the first wider rollout include ADO search by title, or keep ID/URL paste only?
 - Should support analysts be allowed to update ADO fields beyond discussion comments?
 - Should `Dev Funnel #` remain visibly on support forms, or become a legacy/backward-compatibility field only?
 - Should the app remain one primary linked ADO item per Zendesk ticket, or support multiple linked work items later?
 
-## 16. Recommended Next Step
+## 17. Recommended Next Step
 
 Run the controlled client pilot and validate whether:
 
