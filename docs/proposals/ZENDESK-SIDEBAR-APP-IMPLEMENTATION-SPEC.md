@@ -606,8 +606,8 @@ V1 notification behavior:
 
 Optional future enhancement:
 
-- Backend calls Zendesk Apps Notify with an `ado_update_available` event targeted to the ticket assignee when an ADO update arrives.
-- The open sidebar listens for that event, shows a compact banner, and refreshes the summary.
+- Backend calls Zendesk Apps Notify with an `ado_update_available` event targeted to the ticket assignee when an ADO update arrives. This is enabled only when `ZENDESK_APP_NOTIFY_APP_ID` is configured.
+- The open sidebar listens for that event, filters by current ticket ID, shows a compact banner, and refreshes the summary only when the analyst clicks Refresh.
 - The same ADO update must still be written to the ticket because Apps Notify is not durable and offline agents may miss it.
 
 ## 11. App To Backend Auth

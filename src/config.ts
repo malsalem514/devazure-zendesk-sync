@@ -134,6 +134,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         env['ZENDESK_APP_ALLOWED_FORM_IDS'],
         DEFAULT_ZENDESK_APP_ALLOWED_FORM_IDS,
       ),
+      appNotifyAppId: parseOptionalPositiveInt(env['ZENDESK_APP_NOTIFY_APP_ID']),
       devCompletedStatusId: parseOptionalPositiveInt(env['ZENDESK_DEV_COMPLETED_STATUS_ID']),
       adoStatusCustomStatusMap: parsePositiveIntMap(
         env['ZENDESK_ADO_STATUS_CUSTOM_STATUS_MAP'],

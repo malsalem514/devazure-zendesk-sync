@@ -15,6 +15,7 @@ export interface AppConfig {
     apiToken?: string;
     appSharedSecret?: string;
     appAllowedFormIds: number[];
+    appNotifyAppId?: number;
     devCompletedStatusId?: number;
     adoStatusCustomStatusMap: Record<string, number>;
   };

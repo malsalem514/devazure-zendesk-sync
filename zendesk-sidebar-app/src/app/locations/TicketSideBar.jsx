@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import styled from 'styled-components'
+import { Button } from '@zendeskgarden/react-buttons'
 import { Message } from '@zendeskgarden/react-forms'
 import { Spinner } from '@zendeskgarden/react-loaders'
 import { LG, MD, SM, XL } from '@zendeskgarden/react-typography'
@@ -15,11 +16,80 @@ function hasLinkedItem(linked) {
   return Boolean(linked?.workItemId || linked?.workItemUrl)
 }
 
+export const ADO_UPDATE_AVAILABLE_EVENT = 'ado_update_available'
+
+function normalizeNumber(value) {
+  if (value == null || value === '') return null
+  const parsed = Number.parseInt(String(value), 10)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function normalizeString(value) {
+  if (value == null) return null
+  const normalized = String(value).trim()
+  return normalized === '' ? null : normalized
+}
+
+function parseNotificationPayload(payload) {
+  const candidate = payload?.body ?? payload
+  if (typeof candidate !== 'string') return candidate
+
+  try {
+    return JSON.parse(candidate)
+  } catch {
+    return null
+  }
+}
+
+export function normalizeAdoUpdateNotification(payload) {
+  const raw = parseNotificationPayload(payload)
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+
+  const ticketId = normalizeNumber(raw.ticketId)
+  const workItemId = normalizeNumber(raw.workItemId)
+  if (!ticketId || !workItemId) return null
+
+  return {
+    ticketId,
+    workItemId,
+    workItemUrl: normalizeString(raw.workItemUrl),
+    reason: normalizeString(raw.reason),
+    status: normalizeString(raw.status),
+    statusDetail: normalizeString(raw.statusDetail),
+    commentsSynced: normalizeNumber(raw.commentsSynced) ?? 0,
+    occurredAt: normalizeString(raw.occurredAt)
+  }
+}
+
+function formatAdoUpdateNotice(notice, i18n) {
+  if (notice.status && notice.commentsSynced > 0) {
+    return i18n.t('ticket_sidebar.ado_notice_status_comments', {
+      status: notice.status,
+      count: String(notice.commentsSynced)
+    })
+  }
+
+  if (notice.status) {
+    return i18n.t('ticket_sidebar.ado_notice_status', { status: notice.status })
+  }
+
+  if (notice.commentsSynced > 0) {
+    return i18n.t('ticket_sidebar.ado_notice_comments', {
+      count: String(notice.commentsSynced)
+    })
+  }
+
+  return i18n.t('ticket_sidebar.ado_notice_generic')
+}
+
 export default function TicketSideBar() {
   const client = useClient()
   const i18n = useI18n()
   const { snapshot, loading, error, refresh, applyBackendSummary } = useTicketSnapshot(client)
   const [notice, setNotice] = useState(null)
+  const [adoNotice, setAdoNotice] = useState(null)
+  const [adoNoticeRefreshing, setAdoNoticeRefreshing] = useState(false)
+  const ticketIdRef = useRef(null)
 
   const applyActionResult = useCallback(
     async (result) => {
@@ -67,6 +137,16 @@ export default function TicketSideBar() {
     setNotice({ type: 'success', text: i18n.t('ticket_sidebar.unlink_success') })
   }, [applyActionResult, client, i18n, snapshot?.ticketId])
 
+  const refreshFromAdoNotice = useCallback(async () => {
+    setAdoNoticeRefreshing(true)
+    try {
+      await refresh()
+      setAdoNotice(null)
+    } finally {
+      setAdoNoticeRefreshing(false)
+    }
+  }, [refresh])
+
   useEffect(() => {
     let resizeTimer = null
     const resize = () => {
@@ -96,12 +176,39 @@ export default function TicketSideBar() {
   }, [client])
 
   useEffect(() => {
+    ticketIdRef.current = snapshot?.ticketId ?? null
+  }, [snapshot?.ticketId])
+
+  useEffect(() => {
+    if (adoNotice && snapshot?.ticketId && adoNotice.ticketId !== snapshot.ticketId) {
+      setAdoNotice(null)
+    }
+  }, [adoNotice, snapshot?.ticketId])
+
+  useEffect(() => {
     if (!snapshot) {
       return
     }
 
     client.invoke(snapshot.isPilotForm ? 'show' : 'hide')
   }, [client, snapshot])
+
+  useEffect(() => {
+    const handleAdoUpdate = (payload) => {
+      const normalized = normalizeAdoUpdateNotification(payload)
+      const currentTicketId = ticketIdRef.current
+      if (!normalized || !currentTicketId || normalized.ticketId !== currentTicketId) {
+        return
+      }
+
+      setAdoNotice(normalized)
+    }
+
+    client.on?.(ADO_UPDATE_AVAILABLE_EVENT, handleAdoUpdate)
+    return () => {
+      client.off?.(ADO_UPDATE_AVAILABLE_EVENT, handleAdoUpdate)
+    }
+  }, [client])
 
   if (loading) {
     return (
@@ -143,6 +250,30 @@ export default function TicketSideBar() {
           </MetaRow>
         </MetaList>
       </HeaderCard>
+
+      {adoNotice ? (
+        <AdoNotice role="status" aria-live="polite">
+          <NoticeText>
+            <SM isBold>{i18n.t('ticket_sidebar.ado_notice_title')}</SM>
+            <SM>{formatAdoUpdateNotice(adoNotice, i18n)}</SM>
+          </NoticeText>
+          <NoticeActions>
+            <Button
+              size="small"
+              isPrimary
+              disabled={adoNoticeRefreshing}
+              onClick={refreshFromAdoNotice}
+            >
+              {adoNoticeRefreshing
+                ? i18n.t('ticket_sidebar.ado_notice_refreshing')
+                : i18n.t('ticket_sidebar.ado_notice_refresh')}
+            </Button>
+            <Button size="small" disabled={adoNoticeRefreshing} onClick={() => setAdoNotice(null)}>
+              {i18n.t('ticket_sidebar.ado_notice_dismiss')}
+            </Button>
+          </NoticeActions>
+        </AdoNotice>
+      ) : null}
 
       {hasLinkedItem(linked) ? (
         <WorkItemWorkspace
@@ -243,6 +374,35 @@ const CardBase = styled.section`
 
 const HeaderCard = styled(CardBase)`
   background: linear-gradient(180deg, #ffffff 0%, #f7faf9 100%);
+`
+
+const AdoNotice = styled.section`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: ${(props) => props.theme.space.sm};
+  align-items: center;
+  padding: ${(props) => props.theme.space.sm};
+  border: 1px solid #9bd0d9;
+  border-radius: ${(props) => props.theme.borderRadii.sm};
+  background: #edf7f9;
+  color: #17363d;
+
+  @media (max-width: 320px) {
+    grid-template-columns: 1fr;
+  }
+`
+
+const NoticeText = styled.div`
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+`
+
+const NoticeActions = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  gap: ${(props) => props.theme.space.xs};
+  justify-content: flex-end;
 `
 
 const HeaderTop = styled.div`

@@ -109,6 +109,7 @@ Sidebar app and operator APIs:
 
 - `ZENDESK_APP_SHARED_SECRET` verifies ZAF JWTs for `/app/ado/tickets/:id/*`
 - `ZENDESK_APP_ALLOWED_FORM_IDS` scopes signed sidebar routes; defaults to `50882600373907`
+- `ZENDESK_APP_NOTIFY_APP_ID` optionally enables best-effort Zendesk Apps Notify events for open-sidebar ADO update banners; leave unset to disable
 - `ZENDESK_ADO_STATUS_CUSTOM_STATUS_MAP` optionally maps ADO support status tags to Zendesk `custom_status_id` values, for example `{"ado_status_dev_in_progress":39707448444179,"ado_status_support_ready":43270434394131}`
 - `COMMENT_SYNC_MAX_AGE_HOURS` bounds ADO comment back-sync
 - `SYNC_MAX_ATTACHMENT_BYTES` bounds Zendesk attachment uploads to ADO

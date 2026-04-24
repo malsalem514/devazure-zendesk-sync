@@ -43,3 +43,8 @@ test('loadConfig: parses ADO status to Zendesk custom status map', () => {
     ado_status_support_ready: 43270434394131,
   });
 });
+
+test('loadConfig: parses optional Zendesk app notify app id', () => {
+  const config = loadConfig(baseEnv({ ZENDESK_APP_NOTIFY_APP_ID: '1240317' }));
+  assert.equal(config.zendesk.appNotifyAppId, 1240317);
+});

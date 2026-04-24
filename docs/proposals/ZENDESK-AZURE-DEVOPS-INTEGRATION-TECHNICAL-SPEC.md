@@ -470,7 +470,16 @@ Required attribution surfaces:
 
 If the client requires native ADO `System.CreatedBy` to display the Zendesk analyst, treat it as a v2 security workstream using Microsoft Entra delegated auth. Do not use per-user PATs. Do not use privileged `bypassRules=true` impersonation for normal support workflows unless the client provides explicit ADO/security approval and accepts the non-repudiation trade-off.
 
-The v1/pilot notification decision is to use durable Zendesk ticket updates as the primary notification channel: ADO updates write internal notes and update synced status/ETA fields, and Zendesk triggers/followers should notify assignees or groups. Zendesk Apps Notify may be added later only as a best-effort real-time signal for open ZAF app instances; it is not a persistent profile-notification inbox.
+The v1/pilot notification decision is to use durable Zendesk ticket updates as the primary notification channel: ADO updates write internal notes and update synced status/ETA fields, and Zendesk triggers/followers should notify assignees or groups. Zendesk Apps Notify is implemented as an optional best-effort real-time signal for open ZAF app instances; it is not a persistent profile-notification inbox.
+
+Apps Notify implementation:
+
+- Controlled by `ZENDESK_APP_NOTIFY_APP_ID`; unset means no Apps Notify calls.
+- Triggered after ADO-origin status updates or ADO discussion back-sync completes successfully.
+- Targets only the current Zendesk ticket assignee via `agent_id`; the backend skips notification if the ticket is unassigned instead of broadcasting to all app instances.
+- Sends event `ado_update_available` with ticket ID, ADO work item ID, URL, status, status detail, comment count, and timestamp.
+- Sidebar ignores events for other ticket IDs, shows a compact banner for the current ticket, and refreshes only when the agent clicks Refresh.
+- Notification failure is logged and never fails the durable sync job.
 
 ## 10. Attachment Synchronization Policy
 

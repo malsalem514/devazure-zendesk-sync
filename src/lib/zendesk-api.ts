@@ -23,6 +23,23 @@ export interface ZendeskTicketUpdateOptions {
   customStatusId?: number | null;
 }
 
+export const ADO_UPDATE_AVAILABLE_EVENT = 'ado_update_available';
+
+export interface AdoUpdateAvailableNotification {
+  ticketId: string;
+  workItemId: number;
+  workItemUrl: string;
+  reason: 'ado_status_changed' | 'ado_comment_synced';
+  status: string | null;
+  statusDetail: string | null;
+  commentsSynced: number;
+  occurredAt: string;
+}
+
+export type ZendeskAppNotifyResult =
+  | { sent: true }
+  | { sent: false; reason: 'not_configured' | 'missing_agent' };
+
 // Zendesk field ID map — populated via setFieldIdMap()
 let fieldIdMap: Record<string, number> = {};
 
@@ -221,6 +238,56 @@ export async function addPrivateNote(
     ticket: { comment: { body: privateNote, public: false } },
   } as any);
   return null;
+}
+
+function normalizePositiveInteger(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+export async function getTicketAssigneeId(config: AppConfig, ticketId: string | number): Promise<number | null> {
+  const ticket = await getTicketRaw(config, ticketId);
+  return normalizePositiveInteger(ticket?.assignee_id);
+}
+
+export async function notifyAdoUpdateAvailable(
+  config: AppConfig,
+  agentId: string | number | null | undefined,
+  notification: AdoUpdateAvailableNotification,
+): Promise<ZendeskAppNotifyResult> {
+  const appId = config.zendesk.appNotifyAppId;
+  if (!appId) {
+    return { sent: false, reason: 'not_configured' };
+  }
+
+  const normalizedAgentId = normalizePositiveInteger(agentId);
+  if (!normalizedAgentId) {
+    return { sent: false, reason: 'missing_agent' };
+  }
+
+  const { baseUrl, username, token } = requireZendeskApiConfig(config);
+  const response = await fetch(`${baseUrl}/api/v2/apps/notify.json`, {
+    method: 'POST',
+    headers: {
+      Authorization: buildZendeskAuthHeader(username, token),
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      app_id: appId,
+      event: ADO_UPDATE_AVAILABLE_EVENT,
+      agent_id: normalizedAgentId,
+      body: JSON.stringify(notification),
+    }),
+    signal: AbortSignal.timeout(ZENDESK_REQUEST_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Zendesk app notify failed with ${response.status}: ${await response.text()}`);
+  }
+
+  return { sent: true };
 }
 
 function normalizeZendeskCommentAttachment(value: unknown): ZendeskCommentAttachment | null {

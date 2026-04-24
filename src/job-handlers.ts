@@ -15,9 +15,12 @@ import { execute, query } from './lib/oracle.js';
 import {
   addPrivateNote,
   downloadZendeskAttachment,
+  getTicketAssigneeId,
   getLatestTicketComment,
+  notifyAdoUpdateAvailable,
   updateTicketWithNote,
   setFieldIdMap,
+  type AdoUpdateAvailableNotification,
 } from './lib/zendesk-api.js';
 import { buildSyncPlan, shouldSyncZendeskCommentToAdo } from './sync-planner.js';
 import { parseZendeskTicketEvent } from './zendesk-event-parser.js';
@@ -634,6 +637,15 @@ async function handleSyncAdoStateToZendesk(
           summary: `ADO #${workItemId} → ticket #${link.ZENDESK_TICKET_ID}: comments synced=${syncedComments}`,
         },
       );
+      await sendAdoUpdateAvailableNotification(config, {
+        ticketId: link.ZENDESK_TICKET_ID,
+        workItemId,
+        workItemUrl,
+        reason: 'ado_comment_synced',
+        status: STATUS_LABELS[status],
+        statusDetail,
+        commentsSynced: syncedComments,
+      });
       console.log(
         `[job] sync_ado_state_to_zendesk: fingerprint unchanged workItem=${workItemId} ticket=${link.ZENDESK_TICKET_ID} comments=${syncedComments}`,
       );
@@ -687,6 +699,16 @@ async function handleSyncAdoStateToZendesk(
     },
   );
 
+  await sendAdoUpdateAvailableNotification(config, {
+    ticketId: link.ZENDESK_TICKET_ID,
+    workItemId,
+    workItemUrl,
+    reason: 'ado_status_changed',
+    status: STATUS_LABELS[status],
+    statusDetail,
+    commentsSynced: syncedComments,
+  });
+
   console.log(
     `[job] sync_ado_state_to_zendesk: workItem=${workItemId} ticket=${link.ZENDESK_TICKET_ID} status=${status} comments=${syncedComments}`,
   );
@@ -711,6 +733,37 @@ function zendeskCustomStatusForAdoStatus(config: AppConfig, status: AdoStatusTag
 
 function buildReverseSyncNote(status: AdoStatusTag, statusDetail: string, workItemUrl: string): string {
   return `[Synced by integration] ADO status → ${STATUS_LABELS[status]}: ${statusDetail}\n${workItemUrl}`;
+}
+
+async function sendAdoUpdateAvailableNotification(
+  config: AppConfig,
+  params: Omit<AdoUpdateAvailableNotification, 'occurredAt'>,
+): Promise<void> {
+  if (!config.zendesk.appNotifyAppId) return;
+
+  try {
+    const agentId = await getTicketAssigneeId(config, params.ticketId);
+    const result = await notifyAdoUpdateAvailable(config, agentId, {
+      ...params,
+      occurredAt: new Date().toISOString(),
+    });
+
+    if (!result.sent) {
+      console.log(
+        `[job] app notify skipped ticket=${params.ticketId} workItem=${params.workItemId} reason=${result.reason}`,
+      );
+      return;
+    }
+
+    console.log(
+      `[job] app notify sent ticket=${params.ticketId} workItem=${params.workItemId} agent=${agentId}`,
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[job] app notify failed ticket=${params.ticketId} workItem=${params.workItemId}: ${message}`,
+    );
+  }
 }
 
 export const jobHandlers: Record<string, JobHandler> = {

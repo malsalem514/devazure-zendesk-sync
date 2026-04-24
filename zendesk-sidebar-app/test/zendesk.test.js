@@ -5,6 +5,7 @@ import {
   loadTicketSnapshot,
   subscribeToTicketChanges
 } from '../src/app/lib/zendesk.js'
+import { normalizeAdoUpdateNotification } from '../src/app/locations/TicketSideBar.jsx'
 
 function createClient({ values = {}, requestResponse = null, requestError = null } = {}) {
   const client = {
@@ -214,5 +215,39 @@ describe('subscribeToTicketChanges', () => {
 
     expect(eventNames).toContain('ticket.form.id.changed')
     expect(eventNames).not.toContain('ticket.subject.changed')
+  })
+})
+
+describe('normalizeAdoUpdateNotification', () => {
+  it('accepts Zendesk Apps Notify object payloads', () => {
+    expect(normalizeAdoUpdateNotification({
+      ticketId: '39235',
+      workItemId: '79941',
+      workItemUrl: 'https://dev.azure.com/example/_workitems/edit/79941',
+      status: 'Dev In Progress',
+      commentsSynced: '2'
+    })).toMatchObject({
+      ticketId: 39235,
+      workItemId: 79941,
+      status: 'Dev In Progress',
+      commentsSynced: 2
+    })
+  })
+
+  it('accepts wrapped string body payloads and rejects unrelated events', () => {
+    expect(normalizeAdoUpdateNotification({
+      body: JSON.stringify({
+        ticketId: 39235,
+        workItemId: 79941,
+        reason: 'ado_status_changed'
+      })
+    })).toMatchObject({
+      ticketId: 39235,
+      workItemId: 79941,
+      reason: 'ado_status_changed'
+    })
+
+    expect(normalizeAdoUpdateNotification({ body: 'not-json' })).toBe(null)
+    expect(normalizeAdoUpdateNotification({ ticketId: 39235 })).toBe(null)
   })
 })
