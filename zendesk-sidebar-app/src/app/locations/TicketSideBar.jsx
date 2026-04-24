@@ -9,7 +9,7 @@ import { useTicketSnapshot } from '../hooks/useTicketSnapshot.js'
 import { SIDEBAR_HEIGHT } from '../config.js'
 import WorkItemWorkspace from '../components/WorkItemWorkspace.jsx'
 import ActionScaffold from '../components/ActionScaffold.jsx'
-import { postCreate, postLink, postNote, postUnlink } from '../lib/backend.js'
+import { postComment, postCreate, postLink, postUnlink } from '../lib/backend.js'
 
 function hasLinkedItem(linked) {
   return Boolean(linked?.workItemId || linked?.workItemUrl)
@@ -18,46 +18,81 @@ function hasLinkedItem(linked) {
 export default function TicketSideBar() {
   const client = useClient()
   const i18n = useI18n()
-  const { snapshot, loading, error, refresh } = useTicketSnapshot(client)
+  const { snapshot, loading, error, refresh, applyBackendSummary } = useTicketSnapshot(client)
   const [notice, setNotice] = useState(null)
+
+  const applyActionResult = useCallback(
+    async (result) => {
+      if (result?.summary) {
+        applyBackendSummary(result.summary)
+      } else {
+        await refresh()
+      }
+    },
+    [applyBackendSummary, refresh]
+  )
 
   const handleCreate = useCallback(async () => {
     if (!snapshot?.ticketId) throw new Error('Ticket id not available')
     setNotice(null)
-    await postCreate(client, snapshot.ticketId)
-    await refresh()
-  }, [client, snapshot?.ticketId, refresh])
+    const result = await postCreate(client, snapshot.ticketId)
+    await applyActionResult(result)
+  }, [applyActionResult, client, snapshot?.ticketId])
 
   const handleLink = useCallback(
     async (workItemReference) => {
       if (!snapshot?.ticketId) throw new Error('Ticket id not available')
       setNotice(null)
-      await postLink(client, snapshot.ticketId, workItemReference)
-      await refresh()
+      const result = await postLink(client, snapshot.ticketId, workItemReference)
+      await applyActionResult(result)
     },
-    [client, snapshot?.ticketId, refresh],
+    [applyActionResult, client, snapshot?.ticketId],
   )
 
-  const handleAddNote = useCallback(
-    async (note) => {
+  const handleAddComment = useCallback(
+    async (comment) => {
       if (!snapshot?.ticketId) throw new Error('Ticket id not available')
       setNotice(null)
-      await postNote(client, snapshot.ticketId, note)
-      await refresh()
+      const result = await postComment(client, snapshot.ticketId, comment)
+      await applyActionResult(result)
     },
-    [client, snapshot?.ticketId, refresh],
+    [applyActionResult, client, snapshot?.ticketId],
   )
 
   const handleUnlink = useCallback(async () => {
     if (!snapshot?.ticketId) throw new Error('Ticket id not available')
     setNotice(null)
-    await postUnlink(client, snapshot.ticketId)
-    await refresh()
+    const result = await postUnlink(client, snapshot.ticketId)
+    await applyActionResult(result)
     setNotice({ type: 'success', text: i18n.t('ticket_sidebar.unlink_success') })
-  }, [client, i18n, snapshot?.ticketId, refresh])
+  }, [applyActionResult, client, i18n, snapshot?.ticketId])
 
   useEffect(() => {
-    client.invoke('resize', { width: '100%', height: SIDEBAR_HEIGHT })
+    let resizeTimer = null
+    const resize = () => {
+      client.invoke('resize', { width: '100%', height: SIDEBAR_HEIGHT })
+    }
+    const scheduleResize = () => {
+      if (resizeTimer) {
+        window.clearTimeout(resizeTimer)
+      }
+      resizeTimer = window.setTimeout(() => {
+        resizeTimer = null
+        resize()
+      }, 200)
+    }
+
+    resize()
+    client.on?.('app.activated', resize)
+    window.addEventListener('resize', scheduleResize)
+
+    return () => {
+      if (resizeTimer) {
+        window.clearTimeout(resizeTimer)
+      }
+      client.off?.('app.activated', resize)
+      window.removeEventListener('resize', scheduleResize)
+    }
   }, [client])
 
   useEffect(() => {
@@ -121,15 +156,19 @@ export default function TicketSideBar() {
             },
             statusUnknown: i18n.t('ticket_sidebar.status_unknown'),
             typeUnknown: i18n.t('ticket_sidebar.type_unknown'),
-            noteLabel: i18n.t('ticket_sidebar.note_label'),
-            notePlaceholder: i18n.t('ticket_sidebar.note_placeholder'),
-            noteButton: i18n.t('ticket_sidebar.note_button'),
-            noteWorking: i18n.t('ticket_sidebar.note_button_working'),
-            noteSuccess: i18n.t('ticket_sidebar.note_success'),
+            recentDiscussionTitle: i18n.t('ticket_sidebar.recent_discussion_title'),
+            recentDiscussionEmpty: i18n.t('ticket_sidebar.recent_discussion_empty'),
+            commentLabel: i18n.t('ticket_sidebar.comment_label'),
+            commentPlaceholder: i18n.t('ticket_sidebar.comment_placeholder'),
+            commentButton: i18n.t('ticket_sidebar.comment_button'),
+            commentWorking: i18n.t('ticket_sidebar.comment_button_working'),
+            commentSuccess: i18n.t('ticket_sidebar.comment_success'),
             refreshButton: i18n.t('ticket_sidebar.refresh_button'),
             refreshWorking: i18n.t('ticket_sidebar.refresh_button_working'),
             refreshSuccess: i18n.t('ticket_sidebar.refresh_success'),
             copied: i18n.t('ticket_sidebar.copy_success'),
+            copyUnavailable: i18n.t('ticket_sidebar.copy_unavailable'),
+            copyError: i18n.t('ticket_sidebar.copy_error'),
             unlinkButton: i18n.t('ticket_sidebar.unlink_button'),
             unlinkConfirm: i18n.t('ticket_sidebar.unlink_confirm'),
             unlinkConfirmButton: i18n.t('ticket_sidebar.unlink_confirm_button'),
@@ -137,7 +176,7 @@ export default function TicketSideBar() {
             unlinkWorking: i18n.t('ticket_sidebar.unlink_button_working')
           }}
           linked={linked}
-          onAddNote={handleAddNote}
+          onAddComment={handleAddComment}
           onRefresh={refresh}
           onUnlink={handleUnlink}
         />
@@ -145,7 +184,7 @@ export default function TicketSideBar() {
         <EmptyStateCard>
           <LG isBold>{i18n.t('ticket_sidebar.linked_empty_title')}</LG>
           <MD>{i18n.t('ticket_sidebar.linked_empty_body')}</MD>
-          {notice ? <Message validation={notice.type}>{notice.text}</Message> : null}
+          {notice ? <Message aria-live="polite" validation={notice.type}>{notice.text}</Message> : null}
         </EmptyStateCard>
       )}
 
@@ -157,11 +196,11 @@ export default function TicketSideBar() {
           labels={{
             title: i18n.t('ticket_sidebar.actions_title'),
             create: i18n.t('ticket_sidebar.create_button'),
-            creatingLabel: i18n.t('ticket_sidebar.create_button_working') || 'Creating...',
+            creatingLabel: i18n.t('ticket_sidebar.create_button_working') || 'Creating…',
             linkLabel: i18n.t('ticket_sidebar.link_label'),
             linkPlaceholder: i18n.t('ticket_sidebar.link_placeholder'),
             link: i18n.t('ticket_sidebar.link_button'),
-            linkingLabel: i18n.t('ticket_sidebar.link_button_working') || 'Linking...',
+            linkingLabel: i18n.t('ticket_sidebar.link_button_working') || 'Linking…',
             alreadyLinkedHint: i18n.t('ticket_sidebar.already_linked_hint') || 'This ticket is already linked.',
             hint: i18n.t('ticket_sidebar.actions_hint')
           }}

@@ -11,6 +11,7 @@ import {
   DevAzureClient,
   DevAzureHttpError,
   DevAzureTimeoutError,
+  type AdoWorkItemComment,
   type AdoWorkItemSnapshot,
 } from './devazure-client.js';
 import { execute, query } from './lib/oracle.js';
@@ -46,6 +47,7 @@ export interface SummaryResponse {
     product: string | null;
     client: string | null;
     crf: string | null;
+    xref: string | null;
     bucket: string | null;
     unplanned: boolean | null;
     tags: string[];
@@ -60,6 +62,7 @@ export interface SummaryResponse {
     lastSyncAt: string | null;
     lastSyncSource: string | null;
     customerUpdate: string | null;
+    recentComments: AdoWorkItemComment[];
   };
 }
 
@@ -77,6 +80,13 @@ export interface AdoSupportProjection {
 interface AdoSummaryContext {
   adoSnapshot: AdoWorkItemSnapshot | null;
   adoProjection: AdoSupportProjection | null;
+  recentComments: AdoWorkItemComment[];
+}
+
+interface LinkedFieldProjection {
+  fields: ReturnType<typeof buildLinkedAdoZendeskFields>;
+  fingerprint: string | null;
+  workItemUrl: string;
 }
 
 export class AppActionError extends Error {
@@ -96,6 +106,13 @@ function coerceIso(value: unknown): string | null {
   if (value instanceof Date) return value.toISOString();
   const s = String(value).trim();
   return s === '' ? null : s;
+}
+
+function normalizeAdoDate(value: unknown): string | null {
+  const iso = coerceIso(value);
+  if (!iso) return null;
+  const date = new Date(iso);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
 function latestIso(...values: Array<unknown>): string | null {
@@ -161,6 +178,46 @@ function buildDegradedAdoProjection(statusDetail: string): AdoSupportProjection 
   };
 }
 
+async function buildLinkedFieldProjection(
+  config: AppConfig,
+  ado: DevAzureClient,
+  workItemId: number,
+): Promise<LinkedFieldProjection> {
+  const workItemUrl = buildWorkItemUrl(config.devAzure.orgUrl, config.devAzure.project, workItemId);
+  const lastSyncAt = new Date().toISOString();
+
+  try {
+    const snapshot = await ado.getWorkItem(workItemId);
+    if (!snapshot) {
+      const degraded = buildDegradedAdoProjection('Linked ADO work item could not be found.');
+      return {
+        fields: buildLinkedAdoZendeskFields(workItemId, { ...degraded, workItemUrl, lastSyncAt }),
+        fingerprint: null,
+        workItemUrl,
+      };
+    }
+
+    const projection = await buildAdoSupportProjection(config, ado, snapshot);
+    return {
+      fields: buildLinkedAdoZendeskFields(workItemId, { ...projection, lastSyncAt }),
+      fingerprint: projection.fingerprint,
+      workItemUrl: projection.workItemUrl,
+    };
+  } catch (err) {
+    if (!isRecoverableAdoReadError(err)) {
+      throw err;
+    }
+    const message = err instanceof Error ? err.message : 'Live ADO details could not be loaded.';
+    console.warn(`[app] degraded linked field projection workItem=${workItemId}: ${message}`);
+    const degraded = buildDegradedAdoProjection('Live ADO details could not be loaded. Try Refresh.');
+    return {
+      fields: buildLinkedAdoZendeskFields(workItemId, { ...degraded, workItemUrl, lastSyncAt }),
+      fingerprint: null,
+      workItemUrl,
+    };
+  }
+}
+
 export async function buildAdoSupportProjection(
   config: AppConfig,
   ado: DevAzureClient,
@@ -193,6 +250,7 @@ export async function buildAdoSupportProjection(
     sprintEnd,
   });
   const workItemUrl = buildWorkItemUrl(config.devAzure.orgUrl, config.devAzure.project, snapshot.id);
+  const eta = normalizeAdoDate(snapshot.targetDate) ?? sprintEnd;
   const fingerprint = computeAdoFingerprint({
     workItemState: snapshot.state,
     status: statusTag,
@@ -200,7 +258,7 @@ export async function buildAdoSupportProjection(
     sprintName: sprint,
     sprintStart,
     sprintEnd,
-    eta: sprintEnd,
+    eta,
     workItemUrl,
   });
 
@@ -211,7 +269,7 @@ export async function buildAdoSupportProjection(
     sprint,
     sprintStart,
     sprintEnd,
-    eta: sprintEnd,
+    eta,
     syncHealth,
     fingerprint,
     workItemUrl,
@@ -224,19 +282,23 @@ async function loadAdoSummaryContext(
   link: SyncLinkRow | null,
 ): Promise<AdoSummaryContext> {
   if (!link) {
-    return { adoSnapshot: null, adoProjection: null };
+    return { adoSnapshot: null, adoProjection: null, recentComments: [] };
   }
 
   try {
-    const adoSnapshot = await ado.getWorkItem(link.ADO_WORK_ITEM_ID);
+    const [adoSnapshot, recentComments] = await Promise.all([
+      ado.getWorkItem(link.ADO_WORK_ITEM_ID),
+      loadRecentAdoComments(ado, link.ADO_WORK_ITEM_ID),
+    ]);
     if (!adoSnapshot) {
       return {
         adoSnapshot: null,
         adoProjection: buildDegradedAdoProjection('Linked ADO work item could not be found.'),
+        recentComments,
       };
     }
     const adoProjection = await buildAdoSupportProjection(config, ado, adoSnapshot);
-    return { adoSnapshot, adoProjection };
+    return { adoSnapshot, adoProjection, recentComments };
   } catch (err) {
     if (!isRecoverableAdoReadError(err)) {
       throw err;
@@ -246,7 +308,21 @@ async function loadAdoSummaryContext(
     return {
       adoSnapshot: null,
       adoProjection: buildDegradedAdoProjection('Live ADO details could not be loaded. Try Refresh.'),
+      recentComments: [],
     };
+  }
+}
+
+async function loadRecentAdoComments(ado: DevAzureClient, workItemId: number): Promise<AdoWorkItemComment[]> {
+  try {
+    return await ado.getWorkItemComments(workItemId, 3);
+  } catch (err) {
+    if (!isRecoverableAdoReadError(err)) {
+      throw err;
+    }
+    const message = err instanceof Error ? err.message : 'Recent ADO comments could not be loaded.';
+    console.warn(`[app] degraded ADO comments workItem=${workItemId}: ${message}`);
+    return [];
   }
 }
 
@@ -257,6 +333,7 @@ export function buildSummaryFromSnapshot(
   orgUrl: string,
   adoSnapshot: AdoWorkItemSnapshot | null = null,
   adoProjection: AdoSupportProjection | null = null,
+  recentComments: AdoWorkItemComment[] = [],
 ): SummaryResponse {
   if (!link) {
     return { ok: true, ticketId, linked: false };
@@ -295,6 +372,7 @@ export function buildSummaryFromSnapshot(
       product: adoSnapshot?.product ?? null,
       client: adoSnapshot?.client ?? null,
       crf: adoSnapshot?.crf ?? null,
+      xref: adoSnapshot?.xref ?? null,
       bucket: adoSnapshot?.bucket ?? null,
       unplanned: adoSnapshot?.unplanned ?? null,
       tags: adoSnapshot?.tags ?? [],
@@ -309,6 +387,7 @@ export function buildSummaryFromSnapshot(
       lastSyncAt,
       lastSyncSource: coerceString(link.LAST_SYNC_SOURCE),
       customerUpdate,
+      recentComments,
     },
   };
 }
@@ -337,8 +416,16 @@ export async function getTicketSummary(
 ): Promise<SummaryResponse> {
   const ticketId = validateTicketId(ticketIdRaw);
   const link = await loadActiveLink(ticketIdRaw);
-  const { adoSnapshot, adoProjection } = await loadAdoSummaryContext(config, ado, link);
-  return buildSummaryFromSnapshot(ticketId, link, null, config.devAzure.orgUrl, adoSnapshot, adoProjection);
+  const { adoSnapshot, adoProjection, recentComments } = await loadAdoSummaryContext(config, ado, link);
+  return buildSummaryFromSnapshot(
+    ticketId,
+    link,
+    null,
+    config.devAzure.orgUrl,
+    adoSnapshot,
+    adoProjection,
+    recentComments,
+  );
 }
 
 // ------------------------------------------------------------------------
@@ -350,10 +437,9 @@ export async function getTicketSummary(
  * shape the webhook parser produces. This lets the sidebar-click create path
  * reuse `buildSyncPlan` unchanged.
  *
- * Routing-input custom fields (`product`, `case_type`, `crf`) are read from
- * `custom_fields` by ID. `org_name` is not a custom field in the pilot tenant;
- * leaving null means the planner will not set `/fields/Custom.Client` which is
- * fine — the webhook path uses a liquid `{{ticket.organization.name}}` pull.
+ * Routing-input custom fields (`product`, `org_name`, `case_type`, `crf`, `xref`) are
+ * read from `custom_fields` by ID so sidebar-click create uses the same live
+ * support form data that agents see in Zendesk.
  */
 export function ticketToEvent(
   ticket: Record<string, unknown>,
@@ -370,6 +456,7 @@ export function ticketToEvent(
 
   const detail: ZendeskTicketDetail = {
     id: ticketId,
+    ticketFormId: typeof ticket.ticket_form_id === 'number' ? ticket.ticket_form_id : null,
     subject: coerceString(ticket.subject),
     description: coerceString(ticket.description),
     status: coerceString(ticket.status),
@@ -387,9 +474,10 @@ export function ticketToEvent(
       ? coerceString((ticket.via as Record<string, unknown>).channel)
       : null,
     product: coerceString(customByFieldId[ZENDESK_ROUTING_FIELD_IDS.product]),
-    orgName: null,
+    orgName: coerceString(customByFieldId[ZENDESK_ROUTING_FIELD_IDS.org_name]),
     caseType: coerceString(customByFieldId[ZENDESK_ROUTING_FIELD_IDS.case_type]),
     crf: coerceString(customByFieldId[ZENDESK_ROUTING_FIELD_IDS.crf]),
+    xref: coerceString(customByFieldId[ZENDESK_ROUTING_FIELD_IDS.xref]),
   };
 
   return {
@@ -401,6 +489,8 @@ export function ticketToEvent(
     detail,
     commentId: null,
     commentBody: null,
+    commentPublic: null,
+    commentAttachments: [],
   };
 }
 
@@ -414,8 +504,16 @@ async function freshSummary(
   ado: DevAzureClient,
 ): Promise<SummaryResponse> {
   const link = await loadActiveLink(ticketIdRaw);
-  const { adoSnapshot, adoProjection } = await loadAdoSummaryContext(config, ado, link);
-  return buildSummaryFromSnapshot(Number(ticketIdRaw), link, null, config.devAzure.orgUrl, adoSnapshot, adoProjection);
+  const { adoSnapshot, adoProjection, recentComments } = await loadAdoSummaryContext(config, ado, link);
+  return buildSummaryFromSnapshot(
+    Number(ticketIdRaw),
+    link,
+    null,
+    config.devAzure.orgUrl,
+    adoSnapshot,
+    adoProjection,
+    recentComments,
+  );
 }
 
 export interface CreateResult {
@@ -450,25 +548,26 @@ export async function createAdoFromTicket(
   const result = plan.action === 'create'
     ? await ado.createWorkItem(plan.workItemType, plan.operations)
     : await ado.updateWorkItem(existingWorkItem!.id, plan.operations);
+  const linkedProjection = await buildLinkedFieldProjection(config, ado, Number(result.id));
 
   await execute(
-    `INSERT INTO SYNC_LINK (ZENDESK_TICKET_ID, ADO_ORG, ADO_PROJECT, ADO_WORK_ITEM_ID, LINK_MODE, LAST_SYNC_SOURCE, LAST_SYNCED_AT)
-     VALUES (:ticketId, :org, :project, :workItemId, :linkMode, 'zendesk', SYSTIMESTAMP)`,
+    `INSERT INTO SYNC_LINK (ZENDESK_TICKET_ID, ADO_ORG, ADO_PROJECT, ADO_WORK_ITEM_ID, LINK_MODE, LAST_SYNC_SOURCE, LAST_SYNCED_AT, LAST_ADO_FINGERPRINT)
+     VALUES (:ticketId, :org, :project, :workItemId, :linkMode, 'zendesk', SYSTIMESTAMP, :fingerprint)`,
     {
       ticketId: event.detail.id,
       org: config.devAzure.orgUrl,
       project: config.devAzure.project,
       workItemId: Number(result.id),
       linkMode: plan.action === 'create' ? 'created' : 'linked',
+      fingerprint: linkedProjection.fingerprint,
     },
   );
 
-  const workItemUrl = buildWorkItemUrl(config.devAzure.orgUrl, config.devAzure.project, result.id);
   await updateTicketWithNote(
     config,
     event.detail.id,
-    buildLinkedAdoZendeskFields(Number(result.id)),
-    `[Synced by sidebar] Linked to Azure DevOps ${plan.workItemType} #${result.id}\n${workItemUrl}`,
+    linkedProjection.fields,
+    `[Synced by sidebar] Linked to Azure DevOps ${plan.workItemType} #${result.id}\n${linkedProjection.workItemUrl}`,
   );
 
   await execute(
@@ -567,7 +666,7 @@ export async function linkExistingAdoWorkItem(
   await updateTicketWithNote(
     config,
     String(ticketId),
-    buildLinkedAdoZendeskFields(workItemId),
+    buildLinkedAdoZendeskFields(workItemId, { ...projection, lastSyncAt: new Date().toISOString() }),
     `[Synced by sidebar] Linked to existing Azure DevOps work item #${workItemId}\n${projection.workItemUrl}`,
   );
 
@@ -600,6 +699,94 @@ export interface UnlinkResult {
   summary: SummaryResponse;
 }
 
+async function restoreZendeskTag(
+  ado: DevAzureClient,
+  workItemId: number,
+  zendeskTag: string,
+): Promise<void> {
+  const current = await ado.getWorkItem(workItemId);
+  if (!current || current.tags.includes(zendeskTag)) return;
+
+  await ado.updateWorkItem(String(workItemId), [
+    { op: 'test', path: '/rev', value: current.rev },
+    { op: 'replace', path: '/fields/System.Tags', value: [...current.tags, zendeskTag].join('; ') },
+  ]);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function removeZendeskTag(
+  ado: DevAzureClient,
+  workItemId: number,
+  zendeskTag: string,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const current = await ado.getWorkItem(workItemId);
+    if (!current || !current.tags.includes(zendeskTag)) {
+      return false;
+    }
+
+    const remainingTags = current.tags.filter((tag) => tag !== zendeskTag).join('; ');
+    await ado.updateWorkItem(String(workItemId), [
+      { op: 'test', path: '/rev', value: current.rev },
+      { op: 'replace', path: '/fields/System.Tags', value: remainingTags },
+    ]);
+
+    await sleep(250 * (attempt + 1));
+    const verified = await ado.getWorkItem(workItemId);
+    if (!verified || !verified.tags.includes(zendeskTag)) {
+      return true;
+    }
+  }
+
+  throw new AppActionError(
+    `Could not verify removal of ${zendeskTag} from ADO work item #${workItemId}`,
+    502,
+  );
+}
+
+async function markUnlinkPending(ticketId: number): Promise<void> {
+  await execute(
+    `UPDATE SYNC_LINK
+        SET LAST_SYNC_SOURCE = 'unlink_pending',
+            UPDATED_AT = SYSTIMESTAMP
+      WHERE ZENDESK_TICKET_ID = :ticketId AND IS_ACTIVE = 1`,
+    { ticketId: String(ticketId) },
+  );
+}
+
+async function clearUnlinkPending(ticketId: number): Promise<void> {
+  await execute(
+    `UPDATE SYNC_LINK
+        SET LAST_SYNC_SOURCE = 'zendesk',
+            UPDATED_AT = SYSTIMESTAMP
+      WHERE ZENDESK_TICKET_ID = :ticketId AND IS_ACTIVE = 1`,
+    { ticketId: String(ticketId) },
+  );
+}
+
+async function tryClearUnlinkPending(ticketId: number): Promise<void> {
+  try {
+    await clearUnlinkPending(ticketId);
+  } catch (err) {
+    console.error(`[app] failed to clear pending unlink state for ticket #${ticketId}:`, err);
+  }
+}
+
+async function deactivateSyncLink(ticketId: number): Promise<void> {
+  await execute(
+    `UPDATE SYNC_LINK
+        SET IS_ACTIVE = 0,
+            LAST_SYNC_SOURCE = 'zendesk',
+            LAST_SYNCED_AT = SYSTIMESTAMP,
+            UPDATED_AT = SYSTIMESTAMP
+      WHERE ZENDESK_TICKET_ID = :ticketId AND IS_ACTIVE = 1`,
+    { ticketId: String(ticketId) },
+  );
+}
+
 export async function unlinkAdoFromTicket(
   config: AppConfig,
   ticketIdRaw: string,
@@ -611,34 +798,41 @@ export async function unlinkAdoFromTicket(
     return { action: 'already_unlinked', summary: await freshSummary(config, ticketIdRaw, ado) };
   }
 
-  const snapshot = await ado.getWorkItem(link.ADO_WORK_ITEM_ID);
   const workItemUrl = buildWorkItemUrl(config.devAzure.orgUrl, link.ADO_PROJECT, link.ADO_WORK_ITEM_ID);
   const zendeskTag = `zendesk:id:${ticketId}`;
 
-  if (snapshot?.tags.includes(zendeskTag)) {
-    const remainingTags = snapshot.tags.filter((tag) => tag !== zendeskTag).join('; ');
-    await ado.updateWorkItem(String(link.ADO_WORK_ITEM_ID), [
-      { op: 'test', path: '/rev', value: snapshot.rev },
-      { op: 'add', path: '/fields/System.Tags', value: remainingTags },
-    ]);
+  await markUnlinkPending(ticketId);
+
+  try {
+    await updateTicketWithNote(
+      config,
+      String(ticketId),
+      buildClearedAdoZendeskFields(),
+      `[Synced by sidebar] Unlinked Azure DevOps work item #${link.ADO_WORK_ITEM_ID} from this Zendesk ticket.\n${workItemUrl}`,
+    );
+  } catch (err) {
+    await tryClearUnlinkPending(ticketId);
+    throw err;
   }
 
-  await updateTicketWithNote(
-    config,
-    String(ticketId),
-    buildClearedAdoZendeskFields(),
-    `[Synced by sidebar] Unlinked Azure DevOps work item #${link.ADO_WORK_ITEM_ID} from this Zendesk ticket.\n${workItemUrl}`,
-  );
-
-  await execute(
-    `UPDATE SYNC_LINK
-        SET IS_ACTIVE = 0,
-            LAST_SYNC_SOURCE = 'zendesk',
-            LAST_SYNCED_AT = SYSTIMESTAMP,
-            UPDATED_AT = SYSTIMESTAMP
-      WHERE ZENDESK_TICKET_ID = :ticketId AND IS_ACTIVE = 1`,
-    { ticketId: String(ticketId) },
-  );
+  let adoTagRemoved = false;
+  try {
+    adoTagRemoved = await removeZendeskTag(ado, link.ADO_WORK_ITEM_ID, zendeskTag);
+    await deactivateSyncLink(ticketId);
+  } catch (err) {
+    if (adoTagRemoved) {
+      try {
+        await restoreZendeskTag(ado, link.ADO_WORK_ITEM_ID, zendeskTag);
+      } catch (restoreErr) {
+        console.error(
+          `[app] failed to restore ${zendeskTag} on ADO #${link.ADO_WORK_ITEM_ID} after unlink failure:`,
+          restoreErr,
+        );
+      }
+    }
+    await tryClearUnlinkPending(ticketId);
+    throw err;
+  }
 
   await execute(
     `INSERT INTO AUDIT_LOG (ACTION_TYPE, ACTOR_TYPE, SOURCE_SYSTEM, TARGET_SYSTEM, ZENDESK_TICKET_ID, ADO_WORK_ITEM_ID, SUMMARY)
@@ -653,46 +847,40 @@ export async function unlinkAdoFromTicket(
   return { action: 'unlinked', summary: await freshSummary(config, ticketIdRaw, ado) };
 }
 
-export interface NoteResult {
-  action: 'noted';
+export interface CommentResult {
+  action: 'commented';
   summary: SummaryResponse;
 }
 
-function escapeHistory(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
-
-function buildAdoHistoryNote(ticketId: number, note: string, zendeskBaseUrl: string | undefined): string {
+function buildAdoDiscussionComment(ticketId: number, comment: string, zendeskBaseUrl: string | undefined): string {
   const ticketUrl = zendeskBaseUrl ? `${zendeskBaseUrl.replace(/\/$/, '')}/agent/tickets/${ticketId}` : null;
   const lines = [
-    `<strong>Support note from Zendesk #${ticketId}</strong>`,
-    escapeHistory(note).replaceAll('\n', '<br />'),
+    '[Synced from Zendesk by integration]',
+    `Support comment from Zendesk #${ticketId}`,
+    '',
+    comment,
   ];
 
   if (ticketUrl) {
-    lines.push(`<a href="${escapeHistory(ticketUrl)}">Open Zendesk ticket</a>`);
+    lines.push('', `[Open Zendesk ticket](${ticketUrl})`);
   }
 
-  return lines.join('<br />');
+  return lines.join('\n');
 }
 
-export async function addAdoNoteFromTicket(
+export async function addAdoCommentFromTicket(
   config: AppConfig,
   ticketIdRaw: string,
-  note: string,
+  comment: string,
   ado: DevAzureClient,
-): Promise<NoteResult> {
+): Promise<CommentResult> {
   const ticketId = validateTicketId(ticketIdRaw);
-  const normalizedNote = note.trim();
-  if (!normalizedNote) {
-    throw new AppActionError('Note cannot be empty', 400);
+  const normalizedComment = comment.trim();
+  if (!normalizedComment) {
+    throw new AppActionError('Comment cannot be empty', 400);
   }
-  if (normalizedNote.length > 4000) {
-    throw new AppActionError('Note must be 4000 characters or fewer', 400);
+  if (normalizedComment.length > 4000) {
+    throw new AppActionError('Comment must be 4000 characters or fewer', 400);
   }
 
   const link = await loadActiveLink(ticketIdRaw);
@@ -700,15 +888,20 @@ export async function addAdoNoteFromTicket(
     throw new AppActionError(`Ticket #${ticketId} is not linked to an ADO work item`, 409);
   }
 
-  const snapshot = await ado.getWorkItem(link.ADO_WORK_ITEM_ID);
-  if (!snapshot) {
-    throw new AppActionError(`ADO work item #${link.ADO_WORK_ITEM_ID} not found`, 404);
+  try {
+    await ado.addWorkItemComment(
+      link.ADO_WORK_ITEM_ID,
+      buildAdoDiscussionComment(ticketId, normalizedComment, config.zendesk.baseUrl),
+    );
+  } catch (err) {
+    if (err instanceof DevAzureHttpError) {
+      throw new AppActionError(
+        `ADO comment failed for work item #${link.ADO_WORK_ITEM_ID}: ${err.message}`,
+        err.status,
+      );
+    }
+    throw err;
   }
-
-  await ado.updateWorkItem(String(link.ADO_WORK_ITEM_ID), [
-    { op: 'test', path: '/rev', value: snapshot.rev },
-    { op: 'add', path: '/fields/System.History', value: buildAdoHistoryNote(ticketId, normalizedNote, config.zendesk.baseUrl) },
-  ]);
 
   await execute(
     `UPDATE SYNC_LINK
@@ -723,18 +916,18 @@ export async function addAdoNoteFromTicket(
     config,
     String(ticketId),
     {},
-    `[Synced by sidebar] Added support note to Azure DevOps work item #${link.ADO_WORK_ITEM_ID}.\n\n${normalizedNote}`,
+    `[Synced by sidebar] Added ADO discussion comment to Azure DevOps work item #${link.ADO_WORK_ITEM_ID}.\n\n${normalizedComment}`,
   );
 
   await execute(
     `INSERT INTO AUDIT_LOG (ACTION_TYPE, ACTOR_TYPE, SOURCE_SYSTEM, TARGET_SYSTEM, ZENDESK_TICKET_ID, ADO_WORK_ITEM_ID, SUMMARY)
-     VALUES ('sidebar_ado_note', 'agent', 'zendesk', 'ado', :ticketId, :workItemId, :summary)`,
+     VALUES ('sidebar_ado_comment', 'agent', 'zendesk', 'ado', :ticketId, :workItemId, :summary)`,
     {
       ticketId: String(ticketId),
       workItemId: String(link.ADO_WORK_ITEM_ID),
-      summary: `Agent added ADO note from Zendesk ticket #${ticketId}`,
+      summary: `Agent added ADO discussion comment from Zendesk ticket #${ticketId}`,
     },
   );
 
-  return { action: 'noted', summary: await freshSummary(config, ticketIdRaw, ado) };
+  return { action: 'commented', summary: await freshSummary(config, ticketIdRaw, ado) };
 }

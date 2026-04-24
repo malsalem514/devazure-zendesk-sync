@@ -35,7 +35,7 @@ Recommended v1 principles:
 
 - Use a **small curated set** of routing destinations.
 - Do not expose the full raw ADO area tree as a Zendesk choice set.
-- Route by Zendesk **product family** first.
+- Route by Zendesk **product family** first, using the active `Product*` ticket field (`42498755817491`) rather than the inactive legacy `Product ORIG` field.
 - Map Zendesk detailed product into ADO `Custom.Product`.
 - Default new support escalations to Azure DevOps **`Bug`** unless business explicitly wants more than one work item type in v1.
 

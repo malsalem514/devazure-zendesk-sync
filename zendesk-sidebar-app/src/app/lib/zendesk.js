@@ -73,6 +73,7 @@ function linkedFromBackend(summary) {
     product: normalizeString(wi.product),
     client: normalizeString(wi.client),
     crf: normalizeString(wi.crf),
+    xref: normalizeString(wi.xref),
     bucket: normalizeString(wi.bucket),
     unplanned: wi.unplanned === true ? true : wi.unplanned === false ? false : null,
     tags: Array.isArray(wi.tags) ? wi.tags.map(String).filter(Boolean) : [],
@@ -87,6 +88,17 @@ function linkedFromBackend(summary) {
     lastSyncAt: normalizeString(wi.lastSyncAt),
     lastSyncSource: normalizeString(wi.lastSyncSource),
     customerUpdate: normalizeString(wi.customerUpdate),
+    recentComments: Array.isArray(wi.recentComments)
+      ? wi.recentComments.map((comment) => ({
+        id: normalizeNumber(comment.id),
+        workItemId: normalizeNumber(comment.workItemId),
+        text: normalizeString(comment.text),
+        createdBy: normalizeString(comment.createdBy),
+        createdAt: normalizeString(comment.createdAt),
+        modifiedAt: normalizeString(comment.modifiedAt),
+        url: normalizeString(comment.url)
+      })).filter((comment) => comment.id != null)
+      : [],
   }
 }
 
@@ -146,10 +158,24 @@ export async function loadTicketSnapshot(client) {
   }
 }
 
+export function applyBackendSummaryToSnapshot(snapshot, summary) {
+  if (!summary?.ok) {
+    return snapshot
+  }
+
+  return {
+    ticketId: normalizeNumber(summary.ticketId) ?? snapshot?.ticketId ?? null,
+    formId: snapshot?.formId ?? null,
+    subject: snapshot?.subject ?? null,
+    isPilotForm: snapshot?.isPilotForm ?? true,
+    summarySource: summary.linked ? 'backend' : 'backend_empty',
+    linked: linkedFromBackend(summary)
+  }
+}
+
 export function subscribeToTicketChanges(client, onChange) {
   const eventNames = [
     'ticket.form.id.changed',
-    'ticket.subject.changed',
     ...DISPLAYED_FIELD_IDS.map((fieldId) => `ticket.custom_field_${fieldId}.changed`)
   ]
 

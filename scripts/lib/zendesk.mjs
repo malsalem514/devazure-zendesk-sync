@@ -28,6 +28,7 @@ export const V1_FIELDS = [
       { name: 'In Dev Backlog', value: 'ado_status_in_dev_backlog' },
       { name: 'Scheduled In Sprint', value: 'ado_status_scheduled_in_sprint' },
       { name: 'Dev In Progress', value: 'ado_status_dev_in_progress' },
+      { name: 'On Hold', value: 'ado_status_on_hold' },
       { name: 'Support Ready', value: 'ado_status_support_ready' },
     ],
   },

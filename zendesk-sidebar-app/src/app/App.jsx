@@ -17,7 +17,7 @@ function App() {
   return (
     <ThemeProvider theme={{ ...DEFAULT_THEME }}>
       <TranslationProvider>
-        <Suspense fallback={<span>Loading...</span>}>
+        <Suspense fallback={<span aria-live="polite">Loading…</span>}>
           <Location />
         </Suspense>
       </TranslationProvider>

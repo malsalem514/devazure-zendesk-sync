@@ -25,10 +25,17 @@ test('deriveAdoStatus: active state → Dev In Progress', () => {
   }
 });
 
-test('deriveAdoStatus: dated sprint without active work → Scheduled', () => {
+test('deriveAdoStatus: on hold state → On Hold', () => {
+  assert.equal(
+    deriveAdoStatus({ workItemState: 'On Hold', hasDatedSprint: false }),
+    ADO_STATUS_TAGS.onHold,
+  );
+});
+
+test('deriveAdoStatus: dated sprint without active work → Dev In Progress', () => {
   assert.equal(
     deriveAdoStatus({ workItemState: 'New', hasDatedSprint: true }),
-    ADO_STATUS_TAGS.scheduledInSprint,
+    ADO_STATUS_TAGS.devInProgress,
   );
 });
 
@@ -97,6 +104,17 @@ test('formatStatusDetail: matches docs templates', () => {
       sprintEnd: null,
     }),
     'Waiting on development',
+  );
+
+  assert.equal(
+    formatStatusDetail({
+      status: ADO_STATUS_TAGS.onHold,
+      workItemState: 'On Hold',
+      sprintName: null,
+      sprintStart: null,
+      sprintEnd: null,
+    }),
+    'On hold in ADO',
   );
 });
 

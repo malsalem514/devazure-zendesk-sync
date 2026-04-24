@@ -59,6 +59,6 @@ See [docs/ops/deployment.md](./docs/ops/deployment.md) for the full runbook, Cad
 - Zendesk custom fields created in the tenant (one-shot): `docker compose exec zendesk-ado-sync node scripts/create-zendesk-fields.mjs`
 - Pilot ticket form configured (if needed): `scripts/clone-zendesk-form.mjs --source <id> --name "<name>" --agents-only --attach-ado`
 - Public URL + TLS path decided (Caddy site block for `<host>.jestais.com` uses the existing wildcard cert)
-- Zendesk webhook registered: `scripts/register-zendesk-webhook.mjs` (prints the signing secret — paste into `.env` as `ZENDESK_WEBHOOK_SECRET`, then restart container)
+- Zendesk webhook registered: `scripts/register-zendesk-webhook.mjs` (redacts the signing secret by default; use `--print-secret` only in a private terminal when setting `ZENDESK_WEBHOOK_SECRET`, then restart container)
 - ADO service-hook subscriptions registered: `scripts/register-ado-service-hook.mjs` (requires `ADO_WEBHOOK_PUBLIC_URL` + matching `DEVAZURE_WEBHOOK_USERNAME` / `DEVAZURE_WEBHOOK_PASSWORD` in `.env`)
 - First end-to-end test: create a ticket on the pilot form, watch `docker compose logs -f` for the create + writeback + reverse-sync cycle

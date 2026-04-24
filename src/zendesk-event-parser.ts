@@ -1,4 +1,4 @@
-import type { ZendeskTicketDetail, ZendeskTicketEvent } from './types.js';
+import type { ZendeskCommentAttachment, ZendeskTicketDetail, ZendeskTicketEvent } from './types.js';
 
 function asRecord(value: unknown, label: string): Record<string, unknown> {
   if (value == null || typeof value !== 'object' || Array.isArray(value)) {
@@ -30,6 +30,51 @@ function asStringArray(value: unknown): string[] {
     .filter((item): item is string => item != null);
 }
 
+function asOptionalBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes'].includes(normalized)) return true;
+    if (['false', '0', 'no'].includes(normalized)) return false;
+  }
+  return null;
+}
+
+function asOptionalNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function parseAttachments(value: unknown): ZendeskCommentAttachment[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    if (item == null || typeof item !== 'object' || Array.isArray(item)) {
+      return [];
+    }
+    const record = item as Record<string, unknown>;
+    const id = asOptionalString(record['id']);
+    const fileName = asOptionalString(record['file_name'] ?? record['filename'] ?? record['name']);
+    const contentUrl = asOptionalString(record['content_url'] ?? record['url']);
+    if (!id || !fileName || !contentUrl) {
+      return [];
+    }
+    return [{
+      id,
+      fileName,
+      contentUrl,
+      contentType: asOptionalString(record['content_type'] ?? record['contentType']),
+      size: asOptionalNumber(record['size']),
+    }];
+  });
+}
+
 function parseDetail(rawDetail: unknown): ZendeskTicketDetail {
   const detail = asRecord(rawDetail, 'detail');
   const ticketId = asOptionalString(detail['id']);
@@ -42,6 +87,7 @@ function parseDetail(rawDetail: unknown): ZendeskTicketDetail {
 
   return {
     id: ticketId,
+    ticketFormId: asOptionalNumber(detail['ticket_form_id'] ?? detail['ticketFormId'] ?? detail['form_id']),
     subject: asOptionalString(detail['subject']),
     description: asOptionalString(detail['description']),
     status: asOptionalString(detail['status']),
@@ -60,6 +106,7 @@ function parseDetail(rawDetail: unknown): ZendeskTicketDetail {
     orgName: asOptionalString(detail['org_name']),
     caseType: asOptionalString(detail['case_type']),
     crf: asOptionalString(detail['crf']),
+    xref: asOptionalString(detail['xref']),
   };
 }
 
@@ -87,5 +134,11 @@ export function parseZendeskTicketEvent(rawBody: string): ZendeskTicketEvent {
     detail: parseDetail(event['detail']),
     commentId: comment ? asOptionalString(comment['id']) : null,
     commentBody: comment ? asOptionalString(comment['body']) : null,
+    commentPublic: comment
+      ? asOptionalBoolean(comment['public'] ?? comment['is_public'])
+      : null,
+    commentAttachments: comment
+      ? parseAttachments(comment['attachments'])
+      : [],
   };
 }

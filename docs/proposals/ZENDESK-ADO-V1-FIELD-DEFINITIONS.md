@@ -120,6 +120,7 @@ Recommended sidebar/backend values:
 - `In Dev Backlog`
 - `Scheduled In Sprint`
 - `Dev In Progress`
+- `On Hold`
 - `Support Ready`
 
 Optional future values:
@@ -160,8 +161,8 @@ Example values:
 | --- | --- | --- |
 | No linked item | blank | Ticket has not been linked or created yet |
 | Linked item with no dated sprint, state like `New` or backlog | `In Dev Backlog` | Default state for newly created support bugs not in a sprint |
-| Linked item has dated sprint but is not yet actively worked | `Scheduled In Sprint` | Shows that planning occurred |
-| Linked item is active or in dev/testing flow | `Dev In Progress` | Covers `Active`, `In Development`, `In Testing`, `Waiting on Development`, `Waiting on Testing` |
+| Linked item has dated sprint or is active/dev/testing | `Dev In Progress` | BRD rule treats sprint assignment, `Active`, `In Development`, `In Testing`, `Waiting on Development`, and `Waiting on Testing` as development in progress |
+| Linked item is paused | `On Hold` | Covers the live ADO Bug state `On Hold`; status detail should read `On hold in ADO` unless a dated sprint adds context |
 | Linked item is engineering-complete | `Support Ready` | Covers `Resolved`, `Completed`, `Closed`, or equivalent accepted completion states |
 
 ## 10. Sprint And ETA Rules
@@ -178,7 +179,7 @@ If the linked item is only assigned to a team root or non-dated iteration:
 
 Recommended v1 ETA hierarchy:
 
-1. explicit engineering target date if the client later identifies one
+1. explicit engineering target date from `DEVAZURE_TARGET_DATE_FIELD` when populated
 2. sprint end date
 3. blank
 

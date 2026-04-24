@@ -1,11 +1,27 @@
 import { describe, expect, it } from 'vitest'
 import { CUSTOM_FIELD_PATHS, PILOT_FORM_ID } from '../src/app/config.js'
-import { loadTicketSnapshot } from '../src/app/lib/zendesk.js'
+import {
+  applyBackendSummaryToSnapshot,
+  loadTicketSnapshot,
+  subscribeToTicketChanges
+} from '../src/app/lib/zendesk.js'
 
 function createClient({ values = {}, requestResponse = null, requestError = null } = {}) {
   const client = {
     getCalls: [],
     requestCalls: [],
+    async metadata() {
+      return {
+        settings: {
+          backendBaseUrl: 'https://zendesk-sync.example.com'
+        },
+        context: {
+          account: {
+            url: 'https://jestaissupport.zendesk.com'
+          }
+        }
+      }
+    },
     async get(pathOrPaths) {
       client.getCalls.push(pathOrPaths)
 
@@ -67,7 +83,16 @@ describe('loadTicketSnapshot', () => {
         workItem: {
           id: 79922,
           url: 'https://dev.azure.com/example/_workitems/edit/79922',
-          status: 'Active'
+          status: 'Active',
+          recentComments: [
+            {
+              id: 12,
+              workItemId: 79922,
+              text: 'Support comment from Zendesk',
+              createdBy: 'Integration User',
+              createdAt: '2026-04-23T22:00:00.000Z'
+            }
+          ]
         }
       }
     })
@@ -78,7 +103,14 @@ describe('loadTicketSnapshot', () => {
     expect(snapshot.linked).toMatchObject({
       workItemId: 79922,
       workItemUrl: 'https://dev.azure.com/example/_workitems/edit/79922',
-      status: 'Active'
+      status: 'Active',
+      recentComments: [
+        expect.objectContaining({
+          id: 12,
+          text: 'Support comment from Zendesk',
+          createdBy: 'Integration User'
+        })
+      ]
     })
     expect(client.requestCalls).toHaveLength(1)
     expect(readCustomFieldsCalls(client)).toHaveLength(0)
@@ -129,5 +161,58 @@ describe('loadTicketSnapshot', () => {
     expect(snapshot.linked).toBe(null)
     expect(client.requestCalls).toHaveLength(1)
     expect(readCustomFieldsCalls(client)).toHaveLength(0)
+  })
+})
+
+describe('applyBackendSummaryToSnapshot', () => {
+  it('updates the existing snapshot from an action response without another request', () => {
+    const snapshot = {
+      ticketId: 39223,
+      formId: PILOT_FORM_ID,
+      subject: 'Create from sidebar',
+      isPilotForm: true,
+      summarySource: 'backend_empty',
+      linked: null
+    }
+
+    const next = applyBackendSummaryToSnapshot(snapshot, {
+      ok: true,
+      ticketId: 39223,
+      linked: true,
+      workItem: {
+        id: 79923,
+        url: 'https://dev.azure.com/example/_workitems/edit/79923',
+        state: 'Active'
+      }
+    })
+
+    expect(next).toMatchObject({
+      ticketId: 39223,
+      formId: PILOT_FORM_ID,
+      subject: 'Create from sidebar',
+      isPilotForm: true,
+      summarySource: 'backend',
+      linked: {
+        workItemId: 79923,
+        state: 'Active'
+      }
+    })
+  })
+})
+
+describe('subscribeToTicketChanges', () => {
+  it('does not subscribe to subject edits that can fire repeatedly while agents type', () => {
+    const eventNames = []
+    const client = {
+      on(eventName) {
+        eventNames.push(eventName)
+      },
+      off() {}
+    }
+
+    subscribeToTicketChanges(client, () => {})
+
+    expect(eventNames).toContain('ticket.form.id.changed')
+    expect(eventNames).not.toContain('ticket.subject.changed')
   })
 })

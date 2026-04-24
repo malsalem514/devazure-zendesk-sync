@@ -1,5 +1,7 @@
 import type { AppConfig } from './types.js';
 
+const DEFAULT_ZENDESK_APP_ALLOWED_FORM_IDS = [50882600373907];
+
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (value == null || value.trim() === '') {
     return fallback;
@@ -19,6 +21,62 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   }
 
   return parsed;
+}
+
+function parsePositiveIntList(value: string | undefined, fallback: number[]): number[] {
+  if (value == null || value.trim() === '') {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed === '*' || trimmed.toLowerCase() === 'all') {
+    return [];
+  }
+
+  const parts = trimmed.split(',').map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0) {
+    throw new Error('Expected at least one positive integer or "*" for ZENDESK_APP_ALLOWED_FORM_IDS');
+  }
+
+  return parts.map((part) => parsePositiveInt(part, 1));
+}
+
+function parseOptionalPositiveInt(value: string | undefined): number | undefined {
+  if (value == null || value.trim() === '') {
+    return undefined;
+  }
+  return parsePositiveInt(value, 1);
+}
+
+function parseNonNegativeNumber(value: string | undefined, fallback: number): number {
+  if (value == null || value.trim() === '') {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new Error(`Expected a non-negative number. Received: ${value}`);
+  }
+  return parsed;
+}
+
+function parseStringMap(value: string | undefined, envName: string): Record<string, string> {
+  if (value == null || value.trim() === '') {
+    return {};
+  }
+
+  const parsed = JSON.parse(value) as unknown;
+  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${envName} must be a JSON object`);
+  }
+
+  const result: Record<string, string> = {};
+  for (const [key, mapValue] of Object.entries(parsed)) {
+    if (typeof mapValue !== 'string' || mapValue.trim() === '') {
+      throw new Error(`${envName} values must be non-empty strings`);
+    }
+    result[key] = mapValue.trim();
+  }
+  return result;
 }
 
 function requireEnv(name: string, env: NodeJS.ProcessEnv): string {
@@ -41,6 +99,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     webhookPath: env['WEBHOOK_PATH']?.trim() || '/webhooks/zendesk',
     dryRun: parseBoolean(env['SYNC_DRY_RUN'], true),
     inboundBearerToken: env['INBOUND_BEARER_TOKEN']?.trim() || undefined,
+    internalAdminToken: env['INTERNAL_ADMIN_TOKEN']?.trim() || undefined,
+    adminAlertWebhookUrl: env['SYNC_ADMIN_ALERT_WEBHOOK_URL']?.trim() || undefined,
+    commentSyncMaxAgeHours: parseNonNegativeNumber(env['COMMENT_SYNC_MAX_AGE_HOURS'], 24),
+    maxAttachmentBytes: parsePositiveInt(env['SYNC_MAX_ATTACHMENT_BYTES'], 10 * 1024 * 1024),
     zendesk: {
       webhookSecret: skipSignatureVerification
         ? env['ZENDESK_WEBHOOK_SECRET']?.trim() || undefined
@@ -50,6 +112,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       apiUsername: env['ZENDESK_API_USERNAME']?.trim() || undefined,
       apiToken: env['ZENDESK_API_TOKEN']?.trim() || undefined,
       appSharedSecret: env['ZENDESK_APP_SHARED_SECRET']?.trim() || undefined,
+      appAllowedFormIds: parsePositiveIntList(
+        env['ZENDESK_APP_ALLOWED_FORM_IDS'],
+        DEFAULT_ZENDESK_APP_ALLOWED_FORM_IDS,
+      ),
+      devCompletedStatusId: parseOptionalPositiveInt(env['ZENDESK_DEV_COMPLETED_STATUS_ID']),
     },
     devAzure: {
       orgUrl: requireEnv('DEVAZURE_ORG_URL', env),
@@ -59,6 +126,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       areaPath: env['DEVAZURE_AREA_PATH']?.trim() || undefined,
       iterationPath: env['DEVAZURE_ITERATION_PATH']?.trim() || undefined,
       assignedTo: env['DEVAZURE_ASSIGNED_TO']?.trim() || undefined,
+      targetDateField: env['DEVAZURE_TARGET_DATE_FIELD']?.trim() || 'Microsoft.VSTS.Scheduling.TargetDate',
+      zendeskAssigneeMap: parseStringMap(env['ZENDESK_ASSIGNEE_ADO_MAP'], 'ZENDESK_ASSIGNEE_ADO_MAP'),
       apiVersion: env['DEVAZURE_API_VERSION']?.trim() || '7.1',
       webhookPath: env['DEVAZURE_WEBHOOK_PATH']?.trim() || '/webhooks/ado',
       webhookUsername: env['DEVAZURE_WEBHOOK_USERNAME']?.trim() || undefined,

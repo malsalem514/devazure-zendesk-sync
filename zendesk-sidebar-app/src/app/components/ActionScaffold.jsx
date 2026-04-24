@@ -51,6 +51,9 @@ export default function ActionScaffold({ labels, onCreate, onLink, linked }) {
       <Field>
         <Label>{labels.linkLabel}</Label>
         <Input
+          name="adoWorkItemReference"
+          autoComplete="off"
+          spellCheck={false}
           onChange={(event) => setWorkItemReference(event.target.value)}
           placeholder={labels.linkPlaceholder}
           value={workItemReference}
@@ -64,7 +67,7 @@ export default function ActionScaffold({ labels, onCreate, onLink, linked }) {
         </Button>
       </ButtonsRow>
 
-      {error && <Message validation="error">{error}</Message>}
+      {error && <Message aria-live="polite" validation="error">{error}</Message>}
     </Section>
   )
 }

@@ -20,7 +20,44 @@ interface PendingJob {
   MAX_ATTEMPTS: number;
 }
 
+export interface FailedJobSummary {
+  ID: number;
+  JOB_TYPE: string;
+  STATUS: string;
+  ATTEMPT_COUNT: number;
+  MAX_ATTEMPTS: number;
+  ERROR_MESSAGE: string | null;
+  CREATED_AT: Date;
+  FINISHED_AT: Date | null;
+}
+
 const WORKER_ID = `worker-${process.pid}-${Date.now()}`;
+
+function extractHttpStatus(err: unknown): number | null {
+  if (err && typeof err === 'object') {
+    const status = (err as { status?: unknown }).status;
+    if (typeof status === 'number') return status;
+    const statusCode = (err as { statusCode?: unknown }).statusCode;
+    if (typeof statusCode === 'number') return statusCode;
+  }
+  return null;
+}
+
+async function sendAdminAlert(config: AppConfig, payload: Record<string, unknown>): Promise<void> {
+  if (!config.adminAlertWebhookUrl) {
+    return;
+  }
+  try {
+    await fetch(config.adminAlertWebhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'zendesk-ado-sync', ...payload }),
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch (err) {
+    console.error('[worker] admin alert failed:', err);
+  }
+}
 
 /**
  * Claim and execute one pending job using SELECT FOR UPDATE SKIP LOCKED.
@@ -77,13 +114,25 @@ export async function pollOnce(config: AppConfig, handler: JobHandler): Promise<
       attemptResult = 'failure';
 
       const nextAttempt = job.ATTEMPT_COUNT + 1;
-      if (nextAttempt >= job.MAX_ATTEMPTS) {
+      const httpStatus = extractHttpStatus(err);
+      const nonRetryableAuthFailure = httpStatus === 401 || httpStatus === 403;
+      if (nonRetryableAuthFailure || nextAttempt >= job.MAX_ATTEMPTS) {
         await execute(
           `UPDATE SYNC_JOB SET STATUS = 'DEAD', ATTEMPT_COUNT = :count, ERROR_MESSAGE = :err, FINISHED_AT = SYSTIMESTAMP
            WHERE ID = :id`,
           { count: nextAttempt, err: errorSummary, id: job.ID },
         );
         console.error(`[worker] job ${job.ID} (${job.JOB_TYPE}) moved to DEAD after ${nextAttempt} attempts: ${errorSummary}`);
+        if (nonRetryableAuthFailure) {
+          await sendAdminAlert(config, {
+            severity: 'critical',
+            reason: 'auth_failure',
+            status: httpStatus,
+            jobId: job.ID,
+            jobType: job.JOB_TYPE,
+            error: errorSummary,
+          });
+        }
       } else {
         const backoffSeconds = Math.min(Math.pow(2, nextAttempt) + Math.random(), 3600);
         await execute(
@@ -124,6 +173,34 @@ export async function recoverStaleJobs(): Promise<number> {
     console.log(`[worker] recovered ${recovered} stale jobs`);
   }
   return recovered;
+}
+
+export async function listDeadJobs(limit = 20): Promise<FailedJobSummary[]> {
+  const cappedLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
+  return query<FailedJobSummary>(
+    `SELECT ID, JOB_TYPE, STATUS, ATTEMPT_COUNT, MAX_ATTEMPTS, ERROR_MESSAGE, CREATED_AT, FINISHED_AT
+       FROM SYNC_JOB
+      WHERE STATUS IN ('DEAD', 'FAILED')
+      ORDER BY COALESCE(FINISHED_AT, CREATED_AT) DESC
+      FETCH FIRST ${cappedLimit} ROWS ONLY`,
+  );
+}
+
+export async function retryJob(jobId: number): Promise<boolean> {
+  const result = await execute(
+    `UPDATE SYNC_JOB
+        SET STATUS = 'PENDING',
+            ATTEMPT_COUNT = 0,
+            NEXT_PROCESS_AT = SYSTIMESTAMP,
+            STARTED_AT = NULL,
+            FINISHED_AT = NULL,
+            WORKER_ID = NULL,
+            ERROR_MESSAGE = NULL
+      WHERE ID = :jobId
+        AND STATUS IN ('DEAD', 'FAILED')`,
+    { jobId },
+  );
+  return (result.rowsAffected ?? 0) > 0;
 }
 
 /**

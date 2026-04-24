@@ -1,12 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSummaryFromSnapshot } from '../dist/app-handlers.js';
+import { buildAdoSupportProjection, buildSummaryFromSnapshot } from '../dist/app-handlers.js';
+import { buildLinkedAdoZendeskFields } from '../dist/ado-zendesk-fields.js';
 
 const ORG_URL = 'https://dev.azure.com/jestaisinc';
 
 test('buildSummaryFromSnapshot: returns linked=false when no link row', () => {
   const result = buildSummaryFromSnapshot(12345, null, null, ORG_URL);
   assert.deepEqual(result, { ok: true, ticketId: 12345, linked: false });
+});
+
+test('buildLinkedAdoZendeskFields: writes the compact support-facing ADO projection', () => {
+  const result = buildLinkedAdoZendeskFields(79940, {
+    workItemUrl: 'https://dev.azure.com/jestaisinc/VisionSuite/_workitems/edit/79940',
+    statusTag: 'ado_status_in_dev_backlog',
+    statusDetail: 'In backlog',
+    sprint: 'Sprint 42',
+    sprintStart: '2026-05-01T00:00:00.000Z',
+    sprintEnd: '2026-05-15T00:00:00.000Z',
+    eta: '2026-05-15T00:00:00.000Z',
+    syncHealth: 'ado_sync_health_ok',
+    lastSyncAt: '2026-04-23T22:00:00.000Z',
+  });
+
+  assert.equal(result.devFunnelNumber, null);
+  assert.equal(result.adoWorkItemId, 79940);
+  assert.equal(result.adoWorkItemUrl, 'https://dev.azure.com/jestaisinc/VisionSuite/_workitems/edit/79940');
+  assert.equal(result.adoStatus, 'ado_status_in_dev_backlog');
+  assert.equal(result.adoStatusDetail, 'In backlog');
+  assert.equal(result.adoSprint, 'Sprint 42');
+  assert.equal(result.adoSprintStart, '2026-05-01T00:00:00.000Z');
+  assert.equal(result.adoSprintEnd, '2026-05-15T00:00:00.000Z');
+  assert.equal(result.adoEta, '2026-05-15T00:00:00.000Z');
+  assert.equal(result.adoSyncHealth, 'ado_sync_health_ok');
+  assert.equal(result.adoLastSyncAt, '2026-04-23T22:00:00.000Z');
 });
 
 test('buildSummaryFromSnapshot: assembles view model from link + Zendesk fields', () => {
@@ -134,6 +161,49 @@ test('buildSummaryFromSnapshot: enriches sidebar model with ADO work item fields
   assert.match(result.workItem?.customerUpdate ?? '', /Owner: Sam Engineer/);
 });
 
+test('buildSummaryFromSnapshot: includes recent ADO discussion comments', () => {
+  const link = {
+    ADO_ORG: 'jestaisinc',
+    ADO_PROJECT: 'VisionSuite',
+    ADO_WORK_ITEM_ID: 79741,
+    LAST_SYNCED_AT: null,
+    LAST_SYNC_SOURCE: null,
+  };
+  const comments = [
+    {
+      id: 50,
+      workItemId: 79741,
+      text: 'Support comment from Zendesk #39045',
+      createdBy: 'Jesta Integration',
+      createdAt: '2026-04-23T22:00:00.000Z',
+      modifiedAt: '2026-04-23T22:00:00.000Z',
+      url: 'https://dev.azure.com/jestaisinc/VisionSuite/_apis/wit/workItems/79741/comments/50',
+    },
+  ];
+
+  const result = buildSummaryFromSnapshot(39045, link, null, ORG_URL, null, null, comments);
+  assert.deepEqual(result.workItem?.recentComments, comments);
+});
+
+test('buildAdoSupportProjection: explicit ADO target date wins over sprint finish ETA', async () => {
+  const config = {
+    devAzure: {
+      orgUrl: ORG_URL,
+      project: 'VisionSuite',
+    },
+  };
+  const ado = {};
+  const projection = await buildAdoSupportProjection(config, ado, {
+    id: '79741',
+    state: 'Active',
+    iterationPath: null,
+    targetDate: '2026-05-20T00:00:00.000Z',
+  });
+
+  assert.equal(projection.statusTag, 'ado_status_dev_in_progress');
+  assert.equal(projection.eta, '2026-05-20T00:00:00.000Z');
+});
+
 test('buildSummaryFromSnapshot: synthesizes URL when Zendesk has no URL field', () => {
   const link = {
     ADO_ORG: 'jestaisinc',
@@ -201,7 +271,7 @@ test('buildSummaryFromSnapshot: tolerates trims empty/whitespace field values to
 });
 
 import { parseWorkItemReference, ticketToEvent, AppActionError } from '../dist/app-handlers.js';
-import { unwrapZendeskTicketResponse } from '../dist/lib/zendesk-api.js';
+import { adaptZendeskFetchResponse, unwrapZendeskTicketResponse } from '../dist/lib/zendesk-api.js';
 
 test('unwrapZendeskTicketResponse: unwraps node-zendesk v6 response shape', () => {
   const ticket = { id: 123, subject: 'Wrapped ticket', custom_fields: [] };
@@ -216,6 +286,20 @@ test('unwrapZendeskTicketResponse: accepts legacy and direct ticket shapes', () 
   assert.deepEqual(unwrapZendeskTicketResponse({ ticket }), ticket);
   assert.deepEqual(unwrapZendeskTicketResponse(ticket), ticket);
   assert.equal(unwrapZendeskTicketResponse(null), null);
+});
+
+test('adaptZendeskFetchResponse: preserves node-zendesk response contract for custom transport', async () => {
+  const response = new Response(JSON.stringify({ ticket: { id: 789 } }), {
+    status: 200,
+    statusText: 'OK',
+    headers: { 'content-type': 'application/json' },
+  });
+  const adapted = adaptZendeskFetchResponse(response);
+
+  assert.equal(adapted.status, 200);
+  assert.equal(adapted.statusText, 'OK');
+  assert.equal(adapted.headers.get('content-type'), 'application/json');
+  assert.deepEqual(await adapted.json(), { ticket: { id: 789 } });
 });
 
 test('parseWorkItemReference: numeric id', () => {
@@ -261,7 +345,8 @@ test('ticketToEvent: reads routing fields from custom_fields by id', () => {
     updated_at: '2026-04-20T15:00:00Z',
     created_at: '2026-04-20T14:00:00Z',
     custom_fields: [
-      { id: 40815528446739, value: 'omni' },
+      { id: 42498755817491, value: 'omni' },
+      { id: 41539146831251, value: 'Stokes' },
       { id: 40990804522131, value: 'defect' },
       { id: 40992814161939, value: 'CRF-123' },
       { id: 99999999, value: 'unrelated' },
@@ -272,7 +357,7 @@ test('ticketToEvent: reads routing fields from custom_fields by id', () => {
   assert.equal(event.detail.product, 'omni');
   assert.equal(event.detail.caseType, 'defect');
   assert.equal(event.detail.crf, 'CRF-123');
-  assert.equal(event.detail.orgName, null);
+  assert.equal(event.detail.orgName, 'Stokes');
   assert.equal(event.detail.viaChannel, 'email');
   assert.equal(event.detail.subject, 'Test ticket');
   assert.deepEqual(event.detail.tags, ['ado_sync_pilot', 'other']);

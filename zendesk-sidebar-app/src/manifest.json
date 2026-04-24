@@ -12,7 +12,10 @@
     "support": {
       "ticket_sidebar": {
         "url": "http://localhost:3000/",
-        "flexible": true
+        "flexible": true,
+        "size": {
+          "height": "620px"
+        }
       }
     }
   },
@@ -36,9 +39,12 @@
       "name": "appSharedSecret",
       "type": "text",
       "secure": true,
+      "scopes": [
+        "jwt_secret_key"
+      ],
       "required": true
     }
   ],
-  "version": "0.1.0",
+  "version": "0.1.2",
   "frameworkVersion": "2.0"
 }

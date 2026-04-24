@@ -1,9 +1,9 @@
 # Zendesk Sidebar App Implementation Spec
 
-**Status:** Approved implementation direction; sidebar is moving from pilot scaffold to support analyst ADO workspace
+**Status:** Pilot implementation uploaded and hardening smoke in progress
 **Prepared On:** 2026-04-17  
-**Updated On:** 2026-04-23
-**Purpose:** Define the concrete package layout, UI states, backend contract, rollout rules, and acceptance criteria for the private Zendesk sidebar app.
+**Updated On:** 2026-04-24
+**Purpose:** Define the concrete package layout, UI states, backend contract, rollout rules, hardening controls, and acceptance criteria for the private Zendesk sidebar app.
 
 ## 1. Decision Summary
 
@@ -80,6 +80,7 @@ zendesk-sidebar-app/
       index.css
       config.js
       lib/
+        backend.js
         zendesk.js
       hooks/
         useClient.js
@@ -90,9 +91,14 @@ zendesk-sidebar-app/
         TranslationProvider.jsx
       components/
         ActionScaffold.jsx
-        LinkedWorkItemCard.jsx
+        WorkItemWorkspace.jsx
       locations/
         TicketSideBar.jsx
+  test/
+    backend.test.js
+    i18n.test.js
+    zendesk.test.js
+    work-item-workspace.test.js
 ```
 
 ## 4. Current Implementation Scope
@@ -101,21 +107,26 @@ The first scaffolded version has been expanded into the pilot implementation.
 
 It now:
 
-- load in `ticket_sidebar`
-- register with ZAF
-- read ticket context from Zendesk
-- call the backend summary endpoint for the authoritative linked-work-item model
-- fall back to existing linked ADO values from Zendesk custom fields if the backend summary is unavailable
-- hide itself when the ticket is not on the pilot form
-- show a useful linked-item summary when an ADO item already exists
-- show a useful empty state when no ADO item is linked
-- let agents create a new ADO work item through the backend
-- let agents link an existing ADO work item by numeric ID or URL through the backend
-- let agents unlink an ADO work item from the Zendesk ticket
-- show a compact ADO workspace when linked, organized into `Summary`, `Activity`, and `Update`
-- enrich the sidebar summary with live ADO work item fields such as title, type, state, owner, area, priority, severity, tags, and changed date
-- let agents add a support note to ADO history from Zendesk
-- maintain only minimal Zendesk linkage fields; ADO details are fetched live for the app instead of mirrored onto the ticket form
+- loads in `ticket_sidebar`
+- registers with ZAF
+- reads ticket context from Zendesk
+- calls the backend summary endpoint for the authoritative linked-work-item model
+- falls back to existing linked ADO values from Zendesk custom fields only if the backend summary request fails
+- hides itself when the ticket is not on the pilot form
+- shows a useful linked-item summary when an ADO item already exists
+- shows a useful empty state when no ADO item is linked
+- lets agents create a new ADO work item through the backend
+- lets agents link an existing ADO work item by numeric ID or URL through the backend
+- lets agents unlink an ADO work item from the Zendesk ticket
+- shows a compact ADO workspace when linked, organized into `Summary`, `Activity`, and `Update`
+- enriches the sidebar summary with live ADO work item fields such as title, type, state, owner, area, priority, severity, tags, and changed date
+- shows recent ADO discussion comments in the Activity tab
+- lets agents add an ADO discussion comment from Zendesk
+- writes an internal Zendesk note for create, link, unlink, and add-comment actions
+- maintains only minimal Zendesk linkage fields; ADO details are fetched live for the app instead of mirrored onto the ticket form
+- bounds all iframe-to-backend requests with explicit timeouts
+- coalesces duplicate refreshes and avoids refreshes while agents type in the ticket subject
+- applies action-returned summaries locally after create/link/unlink/comment instead of issuing redundant summary calls
 
 It still does not need to:
 
@@ -131,6 +142,9 @@ During development and pilot:
 - Zendesk form ID: `50882600373907`
 - if `ticket.form.id !== 50882600373907`, the app should call `client.invoke('hide')`
 - if the ticket switches back to the pilot form, the app should call `client.invoke('show')`
+- the backend must independently verify the ticket is in the approved form scope before returning ADO data or mutating anything
+- the backend allow-list is controlled by `ZENDESK_APP_ALLOWED_FORM_IDS`, defaulting to `50882600373907`
+- `ZENDESK_APP_ALLOWED_FORM_IDS=*` is allowed only for explicitly approved wider rollout
 
 This is a hard rule until go-live scope is explicitly widened.
 
@@ -178,7 +192,8 @@ Visible content:
 Condition:
 
 - app is on the pilot form
-- ticket has an active `SYNC_LINK` row or the minimal `ADO Work Item ID` fallback field
+- ticket has an active `SYNC_LINK` row from the backend summary
+- if the backend request fails, the app may use the minimal `ADO Work Item ID` fallback field as a degraded temporary view
 
 Visible content:
 
@@ -189,7 +204,8 @@ Visible content:
 - sprint and ETA when available
 - sync health
 - last sync timestamp
-- unlink action inside the `Update` tab, guarded by inline confirmation
+- always-visible compact link actions: `Open in Azure DevOps` and `Unlink ADO`
+- unlink remains guarded by inline confirmation
 
 ### Error state
 
@@ -206,15 +222,25 @@ Behavior:
 
 The app should use the backend summary as the authoritative view. The backend reads live ADO data and the `SYNC_LINK` table, then returns a normalized sidebar model.
 
-The only necessary Zendesk ADO custom field for v1 linkage is:
+The only strictly required Zendesk ADO custom field for v1 linkage is `ADO Work Item ID`. The pilot also maintains a compact, integration-owned ADO projection so support analysts can scan status without opening ADO or waiting for the next reconciler pass.
 
 Current field IDs:
 
 | Field | ID |
 | --- | --- |
+| `Dev Funnel #` | `50847215571859` |
 | `ADO Work Item ID` | `50877199973651` |
+| `ADO Work Item URL` | `50877235285395` |
+| `ADO Status` | `50877228156563` |
+| `ADO Status Detail` | `50877235562259` |
+| `ADO Sprint` | `50877208001043` |
+| `ADO Sprint Start` | `50877200183059` |
+| `ADO Sprint End` | `50877228323091` |
+| `ADO ETA` | `50877235803539` |
+| `ADO Sync Health` | `50877218501395` |
+| `ADO Last Sync At` | `50877208248211` |
 
-Legacy ADO mirror fields may still exist globally in Zendesk for backward compatibility and cleanup:
+Avoid adding any further redundant ADO fields to the ticket form. These fields are the complete approved support-facing projection for v1:
 
 - `Dev Funnel #`
 - `ADO Work Item URL`
@@ -227,12 +253,22 @@ Legacy ADO mirror fields may still exist globally in Zendesk for backward compat
 - `ADO Sync Health`
 - `ADO Last Sync At`
 
+The live `ADO Status` option set must include:
+
+- `ado_status_in_dev_backlog` → `In Dev Backlog`
+- `ado_status_scheduled_in_sprint` → `Scheduled In Sprint`
+- `ado_status_dev_in_progress` → `Dev In Progress`
+- `ado_status_on_hold` → `On Hold`
+- `ado_status_support_ready` → `Support Ready`
+
 V1 behavior:
 
-- create/link writes `ADO Work Item ID` and clears legacy mirror fields
-- unlink clears all ADO linkage and legacy mirror fields
+- create/link writes the compact support-facing projection immediately after the ADO work item is created or linked
+- background and reverse sync use the same projection helper so create/link/reconciler behavior stays consistent
+- unlink clears all ADO linkage/projection fields
 - the app may use `ADO Work Item ID`, `ADO Work Item URL`, or `Dev Funnel #` only as a backend-unavailable fallback
-- no redundant ADO field block should be added to the visible Zendesk ticket form
+- if the backend successfully returns `linked:false`, that response is authoritative and the app must not resurrect stale field data
+- no redundant ADO field block should be added to the visible Zendesk ticket form beyond this compact projection
 
 ## 8. App Information Architecture
 
@@ -290,20 +326,20 @@ Support-facing activity:
 - last sync date/source
 - current status detail
 - sync health
+- newest ADO discussion comments, capped for sidebar space and loaded as a degraded/non-blocking enhancement
 - customer-ready update text that can be copied into a Zendesk reply
 
 Future enhancement:
 
-- newest ADO discussion comments and recent state changes, once the ADO comments/updates API is wired.
+- recent ADO state changes, once the ADO updates API is wired.
 
 #### Update tab
 
 Analyst-safe write actions:
 
-- add a support note to ADO history
+- add an ADO discussion comment
 - refresh the ADO summary
-- unlink ADO from the Zendesk ticket, with confirmation
-- open in ADO as an escape hatch
+- link management remains visible above the tabs so agents do not need to hunt for unlink
 
 Field-changing actions require business approval before implementation:
 
@@ -341,7 +377,8 @@ That means:
 - clicking `Create new ADO` should immediately call the backend
 - clicking `Link existing ADO` should immediately call the backend
 - clicking `Unlink ADO` should require confirmation, then immediately call the backend
-- the backend should update the link record, minimal Zendesk field state, ADO tag state, and private notes after success
+- the backend should update the link record, minimal Zendesk field state, ADO tag state, and internal Zendesk notes after success
+- successful action responses should include the next summary model so the sidebar can update locally without a follow-up summary request
 
 Reason:
 
@@ -419,9 +456,9 @@ Initial v1 behavior:
 
 - derive creation data from the current Zendesk ticket and existing routing logic
 - create the work item
-- write back only the minimal Zendesk linkage field (`ADO Work Item ID`)
-- clear legacy mirrored ADO fields from the ticket
-- write a private audit note
+- write the approved compact Zendesk ADO projection from the created work item
+- write a private/internal Zendesk audit note
+- return `{ ok: true, action, summary }` so the sidebar can render the linked workspace without a redundant GET
 
 ### 10.3 Link existing ADO item
 
@@ -446,9 +483,9 @@ Behavior:
 - resolve the work item
 - tag the ADO item with `zendesk:id:<ticketId>` for dedupe
 - create the active `SYNC_LINK` row
-- write back only the minimal Zendesk linkage field (`ADO Work Item ID`)
-- clear legacy mirrored ADO fields from the ticket
-- add private audit note
+- write the approved compact Zendesk ADO projection from the linked work item
+- add a private/internal Zendesk audit note
+- return `{ ok: true, action, summary }`
 
 ### 10.4 Unlink ADO item
 
@@ -465,10 +502,12 @@ Request shape:
 Behavior:
 
 - validate that the Zendesk ticket has an active ADO link
-- remove the `zendesk:id:<ticketId>` tag from the linked ADO work item when present
-- deactivate the active `SYNC_LINK` row
+- mark the link as `unlink_pending` before external side effects
 - clear `ADO Work Item ID` and all legacy mirrored ADO fields on the Zendesk ticket
-- add a private audit note
+- add a private/internal Zendesk audit note in the same Zendesk update when possible
+- remove the `zendesk:id:<ticketId>` tag from the linked ADO work item when present
+- deactivate the active `SYNC_LINK` row only after Zendesk fields/notes and ADO tag state have succeeded
+- if ADO tag removal succeeded but Oracle deactivation fails, attempt to restore the ADO tag and leave the link recoverable
 - return an empty linked state so the app shows create/link actions again
 
 ### 10.5 Resync linked item
@@ -481,39 +520,45 @@ Purpose:
 
 This can be a post-v1.0 action if needed.
 
-### 10.6 Add ADO note from Zendesk
+### 10.6 Add ADO discussion comment from Zendesk
 
-`POST /app/ado/tickets/:ticketId/note`
+`POST /app/ado/tickets/:ticketId/comment`
 
 Request shape:
 
 ```json
 {
   "source": "zendesk_sidebar_app",
-  "note": "Customer confirmed this affects all stores after EOD."
+  "comment": "Customer confirmed this affects all stores after EOD."
 }
 ```
 
 Behavior:
 
 - validate that the Zendesk ticket has an active ADO link
-- append the note to ADO `System.History`
-- include the Zendesk ticket reference in the ADO history entry
+- create a Work Item Tracking discussion comment through the Azure DevOps Comments API
+- include the Zendesk ticket reference in the ADO discussion comment
+- add a private/internal Zendesk note recording the ADO comment action and comment content
 - write an audit-log row
-- return the refreshed summary
+- return the refreshed summary including recent ADO discussion comments
 
 This is the first analyst-safe write action because it improves engineering context without changing ADO workflow ownership.
 
 ## 11. App To Backend Auth
 
-Current recommended implementation:
+Current implementation:
 
 - the client-side app calls the backend using `client.request()`
 - requests use Zendesk proxying
 - requests include a ZAF JWT in the `Authorization` header
 - the backend verifies the JWT using a shared secret stored as a secure app setting
+- the non-secret backend URL comes from normal installation metadata
+- the shared secret stays in a secure Zendesk app setting scoped to `jwt_secret_key`
+- the app manifest keeps the backend host in `domainWhitelist`
+- the backend validates the JWT issuer against the configured Zendesk base URL
+- every signed sidebar route still checks server-side ticket form scope before work is done
 
-This remains the preferred next implementation target because it:
+This remains the preferred path for future Zendesk apps because it:
 
 - avoids exposing secrets in the browser
 - works with Zendesk's documented request/JWT model
@@ -521,7 +566,127 @@ This remains the preferred next implementation target because it:
 
 **Implementation note:** This auth path is now wired and live-validated with signed backend requests.
 
-## 12. Concrete Milestones
+## 12. Research-Backed Hardening Template
+
+This section records the hardening work applied after the 2026-04-23 technical, functional, security, efficiency, and UI/UX reviews. Use it as the default checklist for future Zendesk apps.
+
+Research basis:
+
+- [Zendesk Apps Framework best practices](https://developer.zendesk.com/documentation/apps/app-developer-guide/best-practices-for-zendesk-apps-developers/): clean up timers/listeners, cache stable data, avoid unnecessary API calls, use secure settings, define app versions, and avoid console/debugger leftovers.
+- [Zendesk `client.request()` contract](https://developer.zendesk.com/api-reference/apps/apps-core-api/client_api/): use the Zendesk proxy for secure settings/JWTs, set explicit `timeout`, and understand `autoRetry` behavior.
+- [Zendesk API rate-limit guidance](https://developer.zendesk.com/api-reference/introduction/rate-limits/): reduce request volume, avoid loops, cache where appropriate, and handle `429`/`Retry-After`.
+- [Azure DevOps rate-limit guidance](https://learn.microsoft.com/en-us/azure/devops/integrate/concepts/rate-limits?view=azure-devops): honor `Retry-After`, monitor rate-limit headers where useful, and smooth bursts instead of creating retry storms.
+- [Azure DevOps Work Item Comments API](https://learn.microsoft.com/en-us/rest/api/azure/devops/wit/comments/add-comment?view=azure-devops-rest-7.1): use `POST workItems/{id}/comments` for discussion comments instead of overloading `System.History`.
+- [Azure DevOps Work Item Attachments API](https://learn.microsoft.com/en-us/rest/api/azure/devops/wit/attachments/create?view=azure-devops-rest-7.1): upload binary content first, then add an `AttachedFile` relation to the work item.
+- [Zendesk ticket comments and attachments API](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_comments/): ticket comments are created through the Tickets API and may include attachment metadata.
+
+### 12.1 Findings addressed
+
+| Finding | Risk | Applied hardening |
+| --- | --- | --- |
+| Unbounded outbound ADO calls | Slow ADO could hold the backend request open and leave the iframe spinning | Added `AbortSignal.timeout(10_000)` to ADO requests and surfaced `DevAzureTimeoutError` |
+| ADO throttling behavior | Immediate retries could worsen rate limiting; long waits could freeze agents | Added one bounded retry for `429/503` only when `Retry-After <= 5s`, with small jitter; long throttles fail fast |
+| Unbounded Zendesk backend API calls | Zendesk API slowness could stall sidebar actions | Added a custom `node-zendesk` fetch transport with `AbortSignal.timeout(10_000)` and a matching response adapter |
+| Caller-controlled ticket IDs in signed app routes | A valid app JWT could be replayed against an arbitrary ticket ID | Added `assertZendeskTicketAllowedForSidebar()` and `ZENDESK_APP_ALLOWED_FORM_IDS` backend enforcement |
+| Authoritative empty backend response ignored | Stale Zendesk fields could display a phantom linked ADO item | Field fallback is now used only when the backend request fails, never after successful `linked:false` |
+| Unlink split-brain risk | ADO tag removal before Oracle/Zendesk success could allow duplicate work items | Unlink now marks `unlink_pending`, updates Zendesk first, removes ADO tag, deactivates the link last, and attempts compensation if needed |
+| Unlink tag removal could silently miss | ADO update/read timing or patch semantics could leave `zendesk:id:*` on the work item after Zendesk fields were cleared | ADO tag removal now fetches the current revision, uses `replace` for `System.Tags`, retries with verification, and fails the unlink instead of deactivating the link if the tag remains |
+| Create/link field projection lag | A newly created or linked work item could leave the visible Zendesk ADO fields blank until a later reconciler pass | Create/link, Zendesk-to-ADO sync, and ADO-to-Zendesk sync now share the compact ADO projection builder and update approved Zendesk fields immediately |
+| Live ADO `On Hold` state collapsed to backlog | Support agents could not tell the difference between unplanned work and paused engineering work | Added `On Hold` as a first-class support status and Zendesk dropdown option |
+| Sidebar-create routing used inactive product field | New ADO items could be routed through the default path because the sidebar read inactive `Product ORIG` instead of live `Product*` | Sidebar ticket-to-event mapping now reads active `Product*` and `Org Name` field IDs from the pilot form |
+| Free-text Zendesk org sent to ADO client picklist | ADO create/update could fail when Zendesk `Org Name` did not exactly match an allowed `Custom.Client` value | `Org Name` is preserved in the ADO description, and `Custom.Client` is written only for approved ADO client values |
+| ADO discussion hidden from support | Sidebar-added ADO context could be present in ADO but invisible in Zendesk, forcing agents back into ADO to confirm it | Summary now includes the newest ADO discussion comments and the Activity tab renders them compactly |
+| ADO note used history instead of comments | Writing `System.History` made sidebar updates look like history entries rather than normal ADO discussion comments | Sidebar update action now uses the Azure DevOps Work Item Comments API and records a Zendesk internal audit note |
+| BRD sprint-assigned status mismatch | Sprint-assigned ADO items could appear merely scheduled when the BRD expects `Dev In Progress` | Status derivation now maps any dated sprint assignment to `Dev In Progress` unless completion or on-hold state wins |
+| Explicit ADO target date absent from ETA | Zendesk ETA could only reflect sprint end, not a board-specific delivery target | `DEVAZURE_TARGET_DATE_FIELD` is read from ADO and wins over sprint finish for `ADO ETA` |
+| ADO discussions not mirrored as Zendesk notes | Agents could see recent comments in the sidebar but lose durable ticket history | Recent non-integration ADO comments are deduped through `COMMENT_SYNC_MAP` and copied to Zendesk as internal notes |
+| Zendesk comment sync could leak private notes | Private troubleshooting notes should not sync unless explicitly selected | Public replies sync to ADO; private notes sync only when tagged `#sync`; integration markers prevent loops |
+| Global Zendesk comment events could create background load | `ticket.comment_added` subscriptions can be high-volume, and out-of-scope forms should not enqueue jobs or touch ADO | The webhook receiver now applies the same approved-form allow-list before dedup/enqueue; out-of-scope events return `202 skipped_out_of_scope` |
+| Unlinked comment events could cause ADO lookup fan-out | Every unlinked comment could otherwise run a WIQL tag lookup against ADO | `ticket.comment_added` processing now requires an active `SYNC_LINK` row and returns no-op without an ADO lookup when no link exists |
+| Zendesk screenshots/logs absent from ADO | Developers could still miss supporting files from the ticket | Zendesk comment attachments are size-guarded, uploaded through the ADO Attachments API, linked to the work item, and deduped through `ATTACHMENT_SYNC_MAP` |
+| Attachment download URLs could be abused | A crafted attachment URL could leak credentials or make the backend fetch non-Zendesk hosts | Attachment downloads are restricted to HTTPS Zendesk tenant URLs or Zendesk content CDN (`*.zdusercontent.com`); redirects are followed manually with the same allow-list and auth is sent only to the tenant host |
+| Failed jobs had no operator retry surface | Recovery required direct database access | Added token-protected `GET /internal/jobs/dead` and `POST /internal/jobs/:id/retry` operator endpoints |
+| Auth failures retried like transient errors | Expired credentials could waste retries and hide urgent action | `401/403` jobs move directly to `DEAD` and can send a configured admin alert webhook |
+| Redundant post-action summary calls | Create/link/unlink/comment could double backend/ADO load | Action responses return `summary`; the sidebar applies it locally |
+| Refresh fan-out from ticket subject edits | Typing in the Zendesk subject could trigger avoidable backend refreshes | Removed `ticket.subject.changed` subscription; only form and displayed ADO fields trigger refresh |
+| Concurrent refresh overlap | Multiple change events could create parallel summary requests | Added in-flight refresh coalescing and a short debounce |
+| Backend URL placeholder not substituted | Using `{{setting.backendBaseUrl}}` directly in a signed request URL could resolve as a Zendesk-relative path and bypass the backend | Resolve `backendBaseUrl` from `client.metadata()`, keep only the signing secret as a secure placeholder, and send `Authorization: Bearer {{jwt.token}}` with ZAF JWT options |
+| Sidebar popup/iframe height glitches | App could appear blank or partially rendered after activation | Added manifest initial height and resize on mount, activation, and debounced window resize with cleanup |
+| Timer/listener leaks | Zendesk app lifecycle changes could leave stale timers/listeners | Resize timers, copy timers, and ticket-change listeners are now cleared on unmount |
+| Clipboard false success | Browser/Zendesk iframe clipboard failures could mislead agents | Clipboard API availability and write failures now produce accurate feedback |
+| Incomplete tab accessibility | Keyboard and screen-reader users could get poor tab behavior | Implemented roving tab index, arrow/Home/End keys, `aria-controls`, and labelled tab panels |
+| Stale/dead linked-card component | Superseded UI code could be accidentally reused | Removed `LinkedWorkItemCard.jsx` and stale translation keys |
+| Production dependency audit finding | `node-cron@3` advisory through pinned dependency | Upgraded `node-cron` to 4.x and removed the obsolete local type shim |
+| Webhook signing secret printed by default | Setup logs could leak a production signing secret | Registration script now redacts by default and requires `--print-secret` opt-in |
+| Stale job recovery unhandled rejection | Oracle outage could produce noisy process-level failures | Wrapped stale-job cron in guarded logging, matching reconciler behavior |
+
+### 12.2 Required controls for future Zendesk apps
+
+Frontend/ZAF controls:
+
+- Use secure Zendesk app settings for secrets; never bundle tokens into iframe JavaScript.
+- Use `client.request({ secure: true, cors: false })` for signed backend calls.
+- Resolve non-secret backend base URLs from `client.metadata().settings`; reserve `{{setting.*}}` placeholders for secure values used by the Zendesk proxy.
+- Send ZAF JWTs with `headers.Authorization = "Bearer {{jwt.token}}"` and `jwt.secret_key = "{{setting.sharedSecret}}"`.
+- Set explicit `timeout` values on all app-to-backend requests.
+- Prefer action responses that include the next view model instead of issuing immediate follow-up GETs.
+- Subscribe only to fields that can change the rendered state; avoid noisy text-entry events.
+- Debounce and coalesce refreshes so multiple ZAF events collapse into one backend request.
+- Hide out-of-scope locations early and avoid backend calls outside the approved scope.
+- Clean up all timers and event listeners on unmount or Zendesk lifecycle teardown.
+- Keep sidebar bundles small and defer non-current locations with lazy loading.
+
+Backend controls:
+
+- Verify ZAF JWT signature and issuer on every app route.
+- Enforce ticket scope server-side; UI hiding is never an authorization boundary.
+- Validate route params and request bodies before calling external systems.
+- Bound all outbound Zendesk and ADO calls with deadlines.
+- Handle `429` and `Retry-After` deliberately; never allow an iframe action to wait for long throttles.
+- Make cross-system workflows durable or compensating before touching dedupe markers.
+- Keep actions idempotent where possible and return recoverable conflict/error messages.
+- Use one Zendesk update for related field changes and private notes to reduce rate-limit consumption.
+- Redact secrets in scripts and logs by default.
+
+UI/UX controls:
+
+- Design for the narrow sidebar: compact summary first, progressive details in tabs.
+- Put create/link actions only in empty state; reserve linked state for ADO context and analyst-safe updates.
+- Require confirmation for unlink/destructive actions.
+- Prefer Zendesk Garden components for buttons, forms, messages, and loading states.
+- Provide keyboard semantics for custom tabs and focus-visible styling for custom interactive elements.
+- Use live regions for async success/error messages.
+- Guard long text with wrapping, truncation, or capped tags so it cannot break the iframe layout.
+- Keep fallback copy agent-safe and actionable; do not expose stack traces or backend internals.
+
+Operational controls:
+
+- Production audit must show `0 vulnerabilities` for root and sidebar package before packaging.
+- Build output should be reviewed for sidebar chunk size and unexpected growth.
+- A live Zendesk smoke test must observe request count, request duration, iframe resize, action success/error states, and backend logs before rollout.
+- The app must remain pilot-form gated until business approval widens the allow-list.
+
+### 12.3 Current verification baseline
+
+The hardening pass is considered locally verified when these commands pass:
+
+```bash
+npm test
+npm --prefix zendesk-sidebar-app test
+npm run app:build
+npm audit --omit=dev
+npm --prefix zendesk-sidebar-app audit --omit=dev
+git diff --check
+```
+
+Latest local result on 2026-04-23:
+
+- root test suite: 61 tests, 54 passing, 7 skipped
+- sidebar Vitest suite: 12 passing
+- sidebar production build succeeds; `TicketSideBar.js` is about `79.66 kB` / `23.43 kB gzip`
+- root and sidebar production audits report `0 vulnerabilities`
+
+## 13. Concrete Milestones
 
 ### Milestone 1. Scaffold package
 
@@ -532,7 +697,7 @@ Done.
 - it uses the official Zendesk React scaffold pattern
 - it loads ticket context
 - it hides itself outside the pilot form
-- it shows linked vs empty state from Zendesk fields
+- it shows linked vs empty state from the backend summary, with Zendesk field fallback only on backend failure
 
 ### Milestone 2. Summary endpoint integration
 
@@ -549,7 +714,7 @@ Done; live endpoint validation passed on 2026-04-23 with Zendesk #39220 -> ADO #
 - `Create new ADO` calls backend
 - backend creates ADO item
 - minimal Zendesk linkage field and private note update correctly
-- app refreshes to linked state
+- app applies the returned summary and moves to linked state without a redundant GET
 
 ### Milestone 4. Link existing action
 
@@ -558,43 +723,55 @@ Done; live endpoint validation passed on 2026-04-23 with Zendesk #39221 -> ADO #
 - ID/URL paste works
 - backend resolves existing ADO item
 - minimal Zendesk linkage field and note update correctly
-- app refreshes to linked state
+- app applies the returned summary and moves to linked state without a redundant GET
 
 ### Milestone 5. Unlink action and lean field contract
 
-Done when:
+Done.
 
-- linked tickets expose `Unlink ADO` in the Update tab with confirmation
-- backend removes the ADO `zendesk:id:<ticketId>` tag when present
-- active `SYNC_LINK` row is deactivated
+- linked tickets expose `Unlink ADO` in the always-visible link action row with confirmation
+- backend marks unlink pending before external side effects
 - `ADO Work Item ID` and legacy mirror fields are cleared from Zendesk
+- backend removes the ADO `zendesk:id:<ticketId>` tag when present
+- active `SYNC_LINK` row is deactivated last
+- failed unlink paths remain recoverable or compensating
 - linked-ticket screen space is reserved for live ADO context, not create/link controls
 
 ### Milestone 6. Pilot hardening
 
-Done when:
+Done.
 
-- refreshed private-app package uploaded after copy/i18n changes
+- signed backend routes are scoped by server-side ticket form checks
+- outbound ADO and Zendesk calls have explicit deadlines
+- ADO short throttles are retried once; long throttles fail fast
+- sidebar requests are timed out and do not auto-retry inside ZAF
+- action responses update the view locally without redundant summary GETs
+- refreshes are debounced/coalesced and noisy subject-edit subscriptions are removed
+- timers/listeners are cleaned up
+- clipboard, tabs, live messages, and overflow behavior pass the local UI standards pass
+- production audits are clean
+
+Still required before wider rollout:
+
+- refreshed private-app package uploaded
 - visual smoke completed in Zendesk on the pilot form
-- form gating confirmed in the installed app
-- success/error messaging confirmed in the installed app
-- action retries and duplicate guards confirmed in the installed app
+- action timing/request counts confirmed against live Zendesk and backend logs
 - rollout beyond pilot form explicitly approved
 
 ### Milestone 7. Analyst ADO workspace
 
-Done when:
+Done.
 
 - linked state uses the compact ADO workspace layout
-- summary endpoint returns live ADO title/type/state/owner/priority/severity/area/tags/change metadata
-- Activity tab includes current status, last sync, last ADO change, and copyable customer-ready update
-- Update tab can append an ADO history note from Zendesk
-- Update tab can unlink the ADO item from the Zendesk ticket
+- summary endpoint returns live ADO title/type/state/owner/priority/severity/area/tags/change metadata and recent discussion comments
+- Activity tab includes current status, last sync, last ADO change, recent ADO discussion, and copyable customer-ready update
+- Update tab can append an ADO discussion comment from Zendesk
+- linked workspace can unlink the ADO item from the Zendesk ticket without hiding the action inside a tab
 - empty state keeps create/link actions focused and does not consume linked-ticket screen space
 
-## 13. Acceptance Criteria For The Sidebar App Started In This Repo
+## 14. Acceptance Criteria For The Sidebar App Started In This Repo
 
-The initial code added in this task should satisfy all of the following:
+The current implementation should satisfy all of the following:
 
 - The Zendesk app lives in its own package and does not disturb the backend TypeScript build.
 - The app package is visibly based on the official Zendesk React scaffold shape.
@@ -602,9 +779,12 @@ The initial code added in this task should satisfy all of the following:
 - The app reads the real pilot form ID and the minimal linked field IDs already documented in this project.
 - The app self-hides outside `Musa ADO Form Testing`.
 - The app shows a linked-item summary if the ticket has an active ADO link.
-- The app actions call the backend and refresh after create/link/unlink succeeds.
+- The app actions call the backend and apply returned summaries after create/link/unlink/comment succeeds.
+- The backend independently verifies ticket form scope for every signed app route.
+- All app-to-backend, backend-to-Zendesk, and backend-to-ADO calls have bounded wait behavior.
+- All agent actions that mutate or mirror ADO state leave an internal Zendesk note.
 
-## 14. Files To Treat As Source Of Truth
+## 15. Files To Treat As Source Of Truth
 
 - Sidebar implementation spec:
   [ZENDESK-SIDEBAR-APP-IMPLEMENTATION-SPEC.md](./ZENDESK-SIDEBAR-APP-IMPLEMENTATION-SPEC.md)
@@ -612,14 +792,16 @@ The initial code added in this task should satisfy all of the following:
   [ZENDESK-ADO-V1-FIELD-DEFINITIONS.md](./ZENDESK-ADO-V1-FIELD-DEFINITIONS.md)
 - Current research and leverage choices:
   [2026-04-17-zendesk-sidebar-app-sota-and-knowledge-gap-analysis.md](../reports/2026-04-17-zendesk-sidebar-app-sota-and-knowledge-gap-analysis.md)
+- Current hardening template:
+  Section 12 of this document
 - Current backend field IDs:
   [src/zendesk-field-ids.ts](/Users/musaalsalem/Projects/devazure-zendesk-sync/src/zendesk-field-ids.ts:1)
 
-## 15. Immediate Next Build Step
+## 16. Immediate Next Build Step
 
-After the 2026-04-23 live endpoint validation, the next step should be:
+After the 2026-04-23 live endpoint validation and smoke pass, the next step should be:
 
-1. smoke create/link/unlink behind the existing pilot-form gate
-2. smoke the Summary, Activity, and Update tabs on ticket `39045`
-3. keep direct minimal Zendesk field reads as a fallback until the stable public URL replaces the quick tunnel
+1. replace the temporary tunnel URL with the stable public backend URL
+2. repeat smoke create/link/unlink/comment behind the pilot-form gate after the stable URL swap
+3. keep direct minimal Zendesk field reads as a fallback only for backend failures
 4. decide which ADO field-changing actions support is allowed to perform from Zendesk

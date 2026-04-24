@@ -6,12 +6,13 @@
  * Zendesk generates the signing secret server-side on create — it cannot be
  * supplied by the admin. This script is therefore idempotent:
  *   - If a webhook named ZENDESK_WEBHOOK_NAME already exists, print its id
- *     + current signing secret and exit.
- *   - Otherwise create the webhook, fetch its signing secret, and print it
- *     so you can paste it into .env as ZENDESK_WEBHOOK_SECRET.
+ *     and verify the signing secret can be fetched.
+ *   - Otherwise create the webhook and verify the signing secret can be fetched.
+ *   - The signing secret is redacted by default. Pass --print-secret only in
+ *     a private terminal when you need to copy it into ZENDESK_WEBHOOK_SECRET.
  *
  * Usage:
- *   node --env-file-if-exists=.env scripts/register-zendesk-webhook.mjs
+ *   node --env-file-if-exists=.env scripts/register-zendesk-webhook.mjs [--print-secret]
  *
  * Required env:
  *   ZENDESK_BASE_URL          https://jestaissupport.zendesk.com
@@ -21,7 +22,7 @@
  *
  * Optional env:
  *   ZENDESK_WEBHOOK_NAME      defaults to "ADO Integration — ticket events"
- *   ZENDESK_WEBHOOK_EVENTS    comma-separated, defaults to "zen:event-type:ticket.created"
+ *   ZENDESK_WEBHOOK_EVENTS    comma-separated, defaults to created + comment_added
  *
  * If the webhook you want to hit accepts Basic auth (via Caddy or the
  * INBOUND_BEARER_TOKEN env on our side), set ZENDESK_WEBHOOK_BASIC_USER and
@@ -42,13 +43,16 @@ if (!webhookUrl) {
 }
 
 const webhookName = process.env.ZENDESK_WEBHOOK_NAME?.trim() || 'ADO Integration — ticket events';
-const subscriptions = (process.env.ZENDESK_WEBHOOK_EVENTS ?? 'zen:event-type:ticket.created')
+const subscriptions = (process.env.ZENDESK_WEBHOOK_EVENTS ?? 'zen:event-type:ticket.created,zen:event-type:ticket.comment_added')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
 
 const basicUser = process.env.ZENDESK_WEBHOOK_BASIC_USER?.trim();
 const basicPass = process.env.ZENDESK_WEBHOOK_BASIC_PASSWORD?.trim();
+const printSecret =
+  process.argv.includes('--print-secret') ||
+  ['1', 'true', 'yes', 'on'].includes((process.env.ZENDESK_WEBHOOK_PRINT_SECRET ?? '').trim().toLowerCase());
 
 const adminAuth = `Basic ${Buffer.from(`${email}/token:${token}`, 'utf8').toString('base64')}`;
 
@@ -89,6 +93,11 @@ async function fetchSigningSecret(id) {
   return res.signing_secret?.secret ?? null;
 }
 
+function redactedSecret(secret) {
+  if (secret.length <= 8) return '<redacted>';
+  return `${secret.slice(0, 4)}...${secret.slice(-4)} (redacted)`;
+}
+
 async function createWebhook() {
   const payload = {
     webhook: {
@@ -113,6 +122,16 @@ async function createWebhook() {
   return res.webhook;
 }
 
+async function updateWebhookSubscriptions(id) {
+  const payload = {
+    webhook: {
+      subscriptions,
+    },
+  };
+  const res = await zd('PUT', `/api/v2/webhooks/${id}`, payload);
+  return res.webhook;
+}
+
 const existing = await findExisting();
 let webhook;
 let mode;
@@ -121,6 +140,14 @@ if (existing) {
   mode = 'existing';
   webhook = existing;
   console.log(`Webhook "${webhookName}" already exists — reusing.`);
+  const currentSubscriptions = new Set(webhook.subscriptions ?? []);
+  const subscriptionsMatch =
+    subscriptions.length === currentSubscriptions.size &&
+    subscriptions.every((subscription) => currentSubscriptions.has(subscription));
+  if (!subscriptionsMatch) {
+    console.log(`  updating subscriptions: ${subscriptions.join(', ')}`);
+    webhook = await updateWebhookSubscriptions(webhook.id);
+  }
 } else {
   mode = 'created';
   console.log(`Creating webhook "${webhookName}" → ${webhookUrl}`);
@@ -141,9 +168,12 @@ console.log(`  name:           ${webhook.name}`);
 console.log(`  endpoint:       ${webhook.endpoint}`);
 console.log(`  status:         ${webhook.status}`);
 console.log(`  subscriptions:  ${(webhook.subscriptions ?? []).join(', ')}`);
-console.log(`  signing secret: ${secret}`);
+console.log(`  signing secret: ${printSecret ? secret : redactedSecret(secret)}`);
 console.log('');
-if (mode === 'created') {
+if (!printSecret) {
+  console.log('Signing secret fetched successfully but redacted. Re-run with --print-secret');
+  console.log('from a private terminal if you need to copy it into ZENDESK_WEBHOOK_SECRET.');
+} else if (mode === 'created') {
   console.log('Next step: set ZENDESK_WEBHOOK_SECRET in the service .env to the signing');
   console.log('secret above and restart the container.');
 } else {

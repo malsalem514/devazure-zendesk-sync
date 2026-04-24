@@ -42,7 +42,11 @@ const workerTask = config.dryRun
 const staleTask = config.dryRun
   ? null
   : cron.schedule('*/5 * * * *', async () => {
-      await recoverStaleJobs();
+      try {
+        await recoverStaleJobs();
+      } catch (err) {
+        console.error('[worker] stale job recovery error:', err);
+      }
     });
 
 // Reconciler: polling safety net for missed ADO webhooks — every 15 minutes.

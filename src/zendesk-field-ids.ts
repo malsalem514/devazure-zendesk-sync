@@ -2,9 +2,8 @@
  * Zendesk custom field IDs for the ADO integration fields.
  * Created in jestaissupport.zendesk.com on 2026-04-16.
  *
- * V1 now maintains only `ado_work_item_id` as the necessary linkage field.
- * The remaining IDs are legacy mirror fields that the backend clears on
- * create/link/unlink so old stale values do not remain on tickets.
+ * V1 maintains a compact support-facing ADO projection on the ticket. These
+ * fields are integration-owned and are cleared together on unlink.
  */
 export const ZENDESK_FIELD_IDS: Record<string, number> = {
   dev_funnel_number: 50847215571859,
@@ -26,7 +25,9 @@ export const ZENDESK_FIELD_IDS: Record<string, number> = {
  * app's immediate-create path reads them directly off the ticket API response.
  */
 export const ZENDESK_ROUTING_FIELD_IDS: Record<string, number> = {
-  product: 40815528446739,    // "Product ORIG"
+  product: 42498755817491,    // "Product*" high-level family, e.g. omni
+  org_name: 41539146831251,   // "Org Name"
   case_type: 40990804522131,  // "Case Type"
   crf: 40992814161939,        // "CRF"
+  xref: 0,                    // Optional future mapping; set to a live field id when approved.
 };

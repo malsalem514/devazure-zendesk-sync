@@ -2,6 +2,9 @@ import nodeZendesk from 'node-zendesk';
 const { createClient } = nodeZendesk;
 import type { AppConfig } from '../types.js';
 
+const ZENDESK_REQUEST_TIMEOUT_MS = 10_000;
+const ZENDESK_ATTACHMENT_MAX_REDIRECTS = 3;
+
 export interface ZendeskFieldMapping {
   devFunnelNumber?: string | null;
   adoWorkItemId?: number | null;
@@ -16,6 +19,10 @@ export interface ZendeskFieldMapping {
   adoLastSyncAt?: string | null;
 }
 
+export interface ZendeskTicketUpdateOptions {
+  customStatusId?: number | null;
+}
+
 // Zendesk field ID map — populated via setFieldIdMap()
 let fieldIdMap: Record<string, number> = {};
 
@@ -25,6 +32,36 @@ export function setFieldIdMap(map: Record<string, number>): void {
 
 // Cached client instance — created once, reused across all calls
 let cachedClient: ReturnType<typeof createClient> | null = null;
+
+async function zendeskTransport(
+  url: string,
+  options: { method?: string; headers?: Record<string, string>; body?: unknown },
+): Promise<Response> {
+  try {
+    return await fetch(url, {
+      method: options.method,
+      headers: options.headers,
+      body: options.body as any,
+      signal: AbortSignal.timeout(ZENDESK_REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError')) {
+      throw new Error(`Zendesk ${options.method ?? 'GET'} request timed out after ${ZENDESK_REQUEST_TIMEOUT_MS}ms`);
+    }
+    throw err;
+  }
+}
+
+export function adaptZendeskFetchResponse(response: Response) {
+  return {
+    json: () => response.json(),
+    status: response.status,
+    headers: {
+      get: (name: string) => response.headers.get(name),
+    },
+    statusText: response.statusText,
+  };
+}
 
 function getClient(config: AppConfig) {
   if (cachedClient) return cachedClient;
@@ -40,7 +77,11 @@ function getClient(config: AppConfig) {
     username,
     token,
     endpointUri: `${baseUrl.replace(/\/$/, '')}/api/v2`,
-  });
+    transportConfig: {
+      transportFn: zendeskTransport,
+      responseAdapter: adaptZendeskFetchResponse,
+    },
+  } as any);
   return cachedClient;
 }
 
@@ -104,6 +145,7 @@ export async function updateTicketWithNote(
   ticketId: string,
   fields: ZendeskFieldMapping,
   privateNote?: string,
+  options: ZendeskTicketUpdateOptions = {},
 ): Promise<void> {
   if (Object.keys(fieldIdMap).length === 0) {
     throw new Error('Zendesk field ID map not initialized — call setFieldIdMap() first');
@@ -138,10 +180,123 @@ export async function updateTicketWithNote(
   if (privateNote) {
     ticket.comment = { body: privateNote, public: false };
   }
+  if (options.customStatusId) {
+    ticket.custom_status_id = options.customStatusId;
+  }
 
   if (Object.keys(ticket).length === 0) return;
 
   await getClient(config).tickets.update(Number(ticketId), { ticket } as any);
+}
+
+export async function addPrivateNote(
+  config: AppConfig,
+  ticketId: string,
+  privateNote: string,
+): Promise<string | null> {
+  await getClient(config).tickets.update(Number(ticketId), {
+    ticket: { comment: { body: privateNote, public: false } },
+  } as any);
+  return null;
+}
+
+export async function downloadZendeskAttachment(
+  config: AppConfig,
+  url: string,
+  maxBytes: number,
+): Promise<{ bytes: Uint8Array; contentType: string | null }> {
+  const baseUrl = config.zendesk.baseUrl;
+  const username = config.zendesk.apiUsername;
+  const token = config.zendesk.apiToken;
+  if (!baseUrl || !username || !token) {
+    throw new Error('Zendesk API config missing: ZENDESK_BASE_URL, ZENDESK_API_USERNAME, and ZENDESK_API_TOKEN are all required');
+  }
+
+  const response = await fetchZendeskAttachment(config, url, username, token, 0);
+  if (!response.ok) {
+    throw new Error(`Zendesk attachment download failed with ${response.status}: ${await response.text()}`);
+  }
+
+  const length = Number(response.headers.get('content-length'));
+  if (Number.isFinite(length) && length > maxBytes) {
+    throw new Error(`Zendesk attachment is too large (${length} bytes; max ${maxBytes})`);
+  }
+
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength > maxBytes) {
+    throw new Error(`Zendesk attachment is too large (${bytes.byteLength} bytes; max ${maxBytes})`);
+  }
+
+  return {
+    bytes,
+    contentType: response.headers.get('content-type'),
+  };
+}
+
+export function validateZendeskAttachmentUrl(
+  config: AppConfig,
+  url: string,
+): { url: URL; sendAuth: boolean } {
+  const baseUrl = config.zendesk.baseUrl;
+  if (!baseUrl) {
+    throw new Error('Zendesk API config missing: ZENDESK_BASE_URL is required for attachment downloads');
+  }
+
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`Blocked Zendesk attachment URL with non-HTTPS protocol: ${parsed.protocol}`);
+  }
+
+  const zendeskHost = new URL(baseUrl).hostname.toLowerCase();
+  const host = parsed.hostname.toLowerCase();
+  if (host === zendeskHost) {
+    return { url: parsed, sendAuth: true };
+  }
+
+  if (host.endsWith('.zdusercontent.com')) {
+    return { url: parsed, sendAuth: false };
+  }
+
+  throw new Error(`Blocked Zendesk attachment URL outside approved hosts: ${parsed.hostname}`);
+}
+
+async function fetchZendeskAttachment(
+  config: AppConfig,
+  url: string,
+  username: string,
+  token: string,
+  redirectCount: number,
+): Promise<Response> {
+  if (redirectCount > ZENDESK_ATTACHMENT_MAX_REDIRECTS) {
+    throw new Error('Zendesk attachment download exceeded redirect limit');
+  }
+
+  const target = validateZendeskAttachmentUrl(config, url);
+  const response = await fetch(target.url, {
+    headers: target.sendAuth
+      ? {
+          Authorization: `Basic ${Buffer.from(`${username}/token:${token}`, 'utf8').toString('base64')}`,
+        }
+      : undefined,
+    redirect: 'manual',
+    signal: AbortSignal.timeout(ZENDESK_REQUEST_TIMEOUT_MS),
+  });
+
+  if ([301, 302, 303, 307, 308].includes(response.status)) {
+    const location = response.headers.get('location');
+    if (!location) {
+      throw new Error('Zendesk attachment redirect did not include a Location header');
+    }
+    return fetchZendeskAttachment(
+      config,
+      new URL(location, target.url).toString(),
+      username,
+      token,
+      redirectCount + 1,
+    );
+  }
+
+  return response;
 }
 
 export async function attachFieldsToForm(

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSyncPlan } from '../dist/sync-planner.js';
+import { buildSyncPlan, shouldSyncZendeskCommentToAdo } from '../dist/sync-planner.js';
 
 const baseConfig = {
   port: 8787,
@@ -51,7 +51,7 @@ test('buildSyncPlan creates a create plan for a normal ticket event', () => {
       brandId: '6832963029118',
       viaChannel: 'web_service',
       product: 'Financials',
-      orgName: 'Acme Corp',
+      orgName: 'Stokes',
       caseType: 'Defect',
       crf: 'CRF-001',
     },
@@ -87,13 +87,55 @@ test('buildSyncPlan creates a create plan for a normal ticket event', () => {
   );
   // Field mapping
   assert.ok(
-    plan.operations.some((op) => op.path === '/fields/Custom.Client' && op.value === 'Acme Corp'),
+    plan.operations.some((op) => op.path === '/fields/Custom.Client' && op.value === 'Stokes'),
   );
   assert.ok(
     plan.operations.some((op) => op.path === '/fields/Custom.CRF' && op.value === 'CRF-001'),
   );
   // Case Type -> work item type
   assert.equal(plan.workItemType, 'Bug');
+});
+
+test('buildSyncPlan keeps unmapped Zendesk org names out of ADO client picklist writes', () => {
+  const event = {
+    id: 'evt-1b',
+    type: 'zen:event-type:ticket.comment_added',
+    subject: 'zen:ticket:74185',
+    time: '2025-01-08T07:32:05.554213813Z',
+    zendeskEventVersion: '2022-11-06',
+    detail: {
+      id: '74185',
+      subject: 'Unmapped client ticket',
+      description: 'Initial comment',
+      status: 'OPEN',
+      priority: 'normal',
+      type: null,
+      tags: [],
+      updatedAt: '2025-01-08T07:32:05Z',
+      createdAt: '2025-01-08T07:31:03Z',
+      requesterId: '6832979613182',
+      assigneeId: null,
+      organizationId: '6832979622654',
+      groupId: '6832953668990',
+      brandId: '6832963029118',
+      viaChannel: 'web_service',
+      product: 'Financials',
+      orgName: 'Acme Corp',
+      caseType: 'Defect',
+      crf: null,
+    },
+    commentId: null,
+    commentBody: null,
+  };
+
+  const plan = buildSyncPlan(event, baseConfig, null);
+
+  assert.ok(
+    !plan.operations.some((op) => op.path === '/fields/Custom.Client'),
+  );
+  assert.ok(
+    plan.operations.some((op) => op.path === '/fields/System.Description' && op.value.includes('Acme Corp')),
+  );
 });
 
 test('buildSyncPlan returns noop for destructive events', () => {
@@ -172,4 +214,59 @@ test('buildSyncPlan returns noop for integration-authored private notes', () => 
   assert.equal(plan.action, 'noop');
   assert.match(plan.reason, /integration-authored/);
   assert.equal(plan.operations.length, 0);
+});
+
+test('shouldSyncZendeskCommentToAdo follows public reply and #sync rules', () => {
+  const baseEvent = {
+    id: 'evt-comment',
+    type: 'zen:event-type:ticket.comment_added',
+    subject: 'zen:ticket:75418',
+    time: '2025-01-15T02:50:15.906323869Z',
+    zendeskEventVersion: '2022-11-06',
+    detail: {
+      id: '75418',
+      subject: 'Comment rules',
+      description: null,
+      status: 'OPEN',
+      priority: null,
+      type: null,
+      tags: [],
+      updatedAt: null,
+      createdAt: null,
+      requesterId: null,
+      assigneeId: null,
+      organizationId: null,
+      groupId: null,
+      brandId: null,
+      viaChannel: null,
+      product: null,
+      orgName: null,
+      caseType: null,
+      crf: null,
+      xref: null,
+    },
+    commentId: '123',
+    commentAttachments: [],
+  };
+
+  assert.equal(shouldSyncZendeskCommentToAdo({
+    ...baseEvent,
+    commentBody: 'Public customer update',
+    commentPublic: true,
+  }), true);
+  assert.equal(shouldSyncZendeskCommentToAdo({
+    ...baseEvent,
+    commentBody: '#sync private support context',
+    commentPublic: false,
+  }), true);
+  assert.equal(shouldSyncZendeskCommentToAdo({
+    ...baseEvent,
+    commentBody: 'Private support context',
+    commentPublic: false,
+  }), false);
+  assert.equal(shouldSyncZendeskCommentToAdo({
+    ...baseEvent,
+    commentBody: '[Synced by integration] loop marker',
+    commentPublic: true,
+  }), false);
 });

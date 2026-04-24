@@ -14,6 +14,7 @@ export const ADO_STATUS_TAGS = {
   inDevBacklog: 'ado_status_in_dev_backlog',
   scheduledInSprint: 'ado_status_scheduled_in_sprint',
   devInProgress: 'ado_status_dev_in_progress',
+  onHold: 'ado_status_on_hold',
   supportReady: 'ado_status_support_ready',
 } as const;
 
@@ -27,6 +28,7 @@ export const ADO_SYNC_HEALTH_TAGS = {
 
 // ADO work item states mapped to derivation categories (§9 table).
 const COMPLETION_STATES = new Set(['Resolved', 'Completed', 'Closed', 'Done', 'Removed']);
+const ON_HOLD_STATES = new Set(['On Hold', 'Hold', 'Blocked']);
 const ACTIVE_STATES = new Set([
   'Active',
   'Committed',
@@ -42,8 +44,9 @@ export function deriveAdoStatus(params: {
 }): AdoStatusTag {
   const state = (params.workItemState ?? '').trim();
   if (state && COMPLETION_STATES.has(state)) return ADO_STATUS_TAGS.supportReady;
+  if (state && ON_HOLD_STATES.has(state)) return ADO_STATUS_TAGS.onHold;
   if (state && ACTIVE_STATES.has(state)) return ADO_STATUS_TAGS.devInProgress;
-  if (params.hasDatedSprint) return ADO_STATUS_TAGS.scheduledInSprint;
+  if (params.hasDatedSprint) return ADO_STATUS_TAGS.devInProgress;
   return ADO_STATUS_TAGS.inDevBacklog;
 }
 
@@ -70,6 +73,9 @@ export function formatStatusDetail(params: {
       return hasRange ? `Waiting on development in ${sprintName}${range}` : 'Waiting on development';
     }
     return hasRange ? `In development in ${sprintName}${range}` : 'In development';
+  }
+  if (status === ADO_STATUS_TAGS.onHold) {
+    return hasRange ? `On hold in ${sprintName}${range}` : 'On hold in ADO';
   }
   if (status === ADO_STATUS_TAGS.scheduledInSprint) {
     return hasRange ? `Scheduled in ${sprintName}${range}` : 'Scheduled in sprint';

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import styled from 'styled-components'
 import { Button } from '@zendeskgarden/react-buttons'
 import { Field, Label, Message, Textarea } from '@zendeskgarden/react-forms'
@@ -82,6 +82,19 @@ function formatHealthLabel(syncHealth) {
   return formatValue(syncHealth)
 }
 
+export async function copyTextToClipboard(text, clipboard = globalThis.navigator?.clipboard) {
+  if (!clipboard?.writeText) {
+    return { ok: false, reason: 'unavailable' }
+  }
+
+  try {
+    await clipboard.writeText(text)
+    return { ok: true }
+  } catch {
+    return { ok: false, reason: 'failed' }
+  }
+}
+
 function SummaryRows({ linked }) {
   const rows = [
     ['Type', linked.workItemType],
@@ -96,6 +109,7 @@ function SummaryRows({ linked }) {
     ['Product', linked.product],
     ['Client', linked.client],
     ['CRF', linked.crf],
+    ['XREF', linked.xref],
   ]
 
   return (
@@ -121,7 +135,9 @@ function SummaryRows({ linked }) {
   )
 }
 
-function ActivityPanel({ linked, onCopyCustomerUpdate }) {
+function ActivityPanel({ linked, labels, onCopyCustomerUpdate }) {
+  const recentComments = Array.isArray(linked.recentComments) ? linked.recentComments : []
+
   return (
     <Panel>
       <Rows>
@@ -145,6 +161,24 @@ function ActivityPanel({ linked, onCopyCustomerUpdate }) {
           <InfoValue>{formatHealthLabel(linked.syncHealth)}</InfoValue>
         </InfoRow>
       </Rows>
+      <DiscussionBlock>
+        <SM isBold>{labels.recentDiscussionTitle}</SM>
+        {recentComments.length ? (
+          <DiscussionList>
+            {recentComments.map((comment) => (
+              <DiscussionItem key={comment.id}>
+                <DiscussionMeta>
+                  {comment.createdBy || 'Azure DevOps'}
+                  {comment.createdAt ? ` · ${formatDateTime(comment.createdAt)}` : ''}
+                </DiscussionMeta>
+                <DiscussionText>{comment.text || 'No comment text'}</DiscussionText>
+              </DiscussionItem>
+            ))}
+          </DiscussionList>
+        ) : (
+          <EmptyDiscussion>{labels.recentDiscussionEmpty}</EmptyDiscussion>
+        )}
+      </DiscussionBlock>
       {linked.customerUpdate ? (
         <CopyBlock>
           <CopyHeader>
@@ -160,20 +194,74 @@ function ActivityPanel({ linked, onCopyCustomerUpdate }) {
   )
 }
 
-function UpdatePanel({ linked, labels, onAddNote, onRefresh, onUnlink }) {
-  const [note, setNote] = useState('')
+function LinkActions({ linked, labels, onUnlink }) {
   const [busy, setBusy] = useState(null)
   const [message, setMessage] = useState(null)
   const [confirmingUnlink, setConfirmingUnlink] = useState(false)
 
-  const submitNote = async () => {
-    if (!note.trim()) return
-    setBusy('note')
+  const unlink = async () => {
+    setBusy('unlink')
     setMessage(null)
     try {
-      await onAddNote(note.trim())
-      setNote('')
-      setMessage({ type: 'success', text: labels.noteSuccess })
+      await onUnlink()
+    } catch (err) {
+      setMessage({ type: 'error', text: friendlyError(err) })
+      setBusy(null)
+    }
+  }
+
+  return (
+    <LinkActionsBlock>
+      <LinkActionsRow>
+        {linked.workItemUrl ? (
+          <OpenLink href={linked.workItemUrl} rel="noreferrer" target="_blank">
+            {labels.open}
+          </OpenLink>
+        ) : null}
+        {!confirmingUnlink ? (
+          <Button size="small" isDanger disabled={busy !== null} onClick={() => setConfirmingUnlink(true)}>
+            {labels.unlinkButton}
+          </Button>
+        ) : null}
+      </LinkActionsRow>
+      {confirmingUnlink ? (
+        <ConfirmRow>
+          <ConfirmText>{labels.unlinkConfirm}</ConfirmText>
+          <ButtonRow>
+            <Button size="small" isDanger disabled={busy !== null} onClick={unlink}>
+              {busy === 'unlink' ? labels.unlinkWorking : labels.unlinkConfirmButton}
+            </Button>
+            <Button
+              size="small"
+              disabled={busy !== null}
+              onClick={() => {
+                setConfirmingUnlink(false)
+                setMessage(null)
+              }}
+            >
+              {labels.unlinkCancel}
+            </Button>
+          </ButtonRow>
+        </ConfirmRow>
+      ) : null}
+      {message ? <Message aria-live="polite" validation={message.type}>{message.text}</Message> : null}
+    </LinkActionsBlock>
+  )
+}
+
+function UpdatePanel({ labels, onAddComment, onRefresh }) {
+  const [comment, setComment] = useState('')
+  const [busy, setBusy] = useState(null)
+  const [message, setMessage] = useState(null)
+
+  const submitComment = async () => {
+    if (!comment.trim()) return
+    setBusy('comment')
+    setMessage(null)
+    try {
+      await onAddComment(comment.trim())
+      setComment('')
+      setMessage({ type: 'success', text: labels.commentSuccess })
     } catch (err) {
       setMessage({ type: 'error', text: friendlyError(err) })
     } finally {
@@ -194,70 +282,30 @@ function UpdatePanel({ linked, labels, onAddNote, onRefresh, onUnlink }) {
     }
   }
 
-  const unlink = async () => {
-    setBusy('unlink')
-    setMessage(null)
-    try {
-      await onUnlink()
-    } catch (err) {
-      setMessage({ type: 'error', text: friendlyError(err) })
-      setBusy(null)
-    }
-  }
-
   return (
     <Panel>
       <Field>
-        <Label>{labels.noteLabel}</Label>
+        <Label>{labels.commentLabel}</Label>
         <Textarea
+          name="adoComment"
+          autoComplete="off"
           minRows={4}
           maxRows={6}
-          onChange={(event) => setNote(event.target.value)}
-          placeholder={labels.notePlaceholder}
-          value={note}
+          onChange={(event) => setComment(event.target.value)}
+          placeholder={labels.commentPlaceholder}
+          value={comment}
           disabled={busy !== null}
         />
       </Field>
       <ButtonRow>
-        <Button isPrimary disabled={!note.trim() || busy !== null} onClick={submitNote}>
-          {busy === 'note' ? labels.noteWorking : labels.noteButton}
+        <Button isPrimary disabled={!comment.trim() || busy !== null} onClick={submitComment}>
+          {busy === 'comment' ? labels.commentWorking : labels.commentButton}
         </Button>
         <Button disabled={busy !== null} onClick={refresh}>
           {busy === 'refresh' ? labels.refreshWorking : labels.refreshButton}
         </Button>
       </ButtonRow>
-      {message ? <Message validation={message.type}>{message.text}</Message> : null}
-      {linked.workItemUrl ? (
-        <OpenLink href={linked.workItemUrl} rel="noreferrer" target="_blank">
-          {labels.open}
-        </OpenLink>
-      ) : null}
-      <Divider />
-      {confirmingUnlink ? (
-        <ConfirmRow>
-          <ConfirmText>{labels.unlinkConfirm}</ConfirmText>
-          <ButtonRow>
-            <Button isDanger disabled={busy !== null} onClick={unlink}>
-              {busy === 'unlink' ? labels.unlinkWorking : labels.unlinkConfirmButton}
-            </Button>
-            <Button
-              disabled={busy !== null}
-              onClick={() => {
-                setConfirmingUnlink(false)
-                setMessage(null)
-              }}
-            >
-              {labels.unlinkCancel}
-            </Button>
-          </ButtonRow>
-        </ConfirmRow>
-      ) : (
-        <ButtonRow>
-          <Button isDanger disabled={busy !== null} onClick={() => setConfirmingUnlink(true)}>
-            {labels.unlinkButton}
-          </Button>
-        </ButtonRow>
-      )}
+      {message ? <Message aria-live="polite" validation={message.type}>{message.text}</Message> : null}
     </Panel>
   )
 }
@@ -271,10 +319,11 @@ function friendlyError(err) {
   return 'Action failed'
 }
 
-export default function WorkItemWorkspace({ linked, labels, onAddNote, onRefresh, onUnlink }) {
+export default function WorkItemWorkspace({ linked, labels, onAddComment, onRefresh, onUnlink }) {
   const [activeTab, setActiveTab] = useState('summary')
   const [copyState, setCopyState] = useState(null)
   const tabRefs = useRef({})
+  const copyTimerRef = useRef(null)
   const tone = formatHealthTone(linked.syncHealth)
 
   const title = linked.title || `ADO #${linked.workItemId}`
@@ -306,15 +355,39 @@ export default function WorkItemWorkspace({ linked, labels, onAddNote, onRefresh
     }
   }
 
+  const showCopyState = useCallback((state) => {
+    if (copyTimerRef.current) {
+      window.clearTimeout(copyTimerRef.current)
+    }
+    setCopyState(state)
+    copyTimerRef.current = window.setTimeout(() => {
+      setCopyState(null)
+      copyTimerRef.current = null
+    }, 1800)
+  }, [])
+
+  useEffect(() => () => {
+    if (copyTimerRef.current) {
+      window.clearTimeout(copyTimerRef.current)
+    }
+  }, [])
+
   const tabContent = useMemo(() => {
     if (activeTab === 'activity') {
       return (
         <ActivityPanel
           linked={linked}
+          labels={labels}
           onCopyCustomerUpdate={async (text) => {
-            await navigator.clipboard?.writeText(text)
-            setCopyState(labels.copied)
-            window.setTimeout(() => setCopyState(null), 1800)
+            const result = await copyTextToClipboard(text)
+            showCopyState({
+              type: result.ok ? 'success' : 'error',
+              text: result.ok
+                ? labels.copied
+                : result.reason === 'unavailable'
+                  ? labels.copyUnavailable
+                  : labels.copyError
+            })
           }}
         />
       )
@@ -323,17 +396,15 @@ export default function WorkItemWorkspace({ linked, labels, onAddNote, onRefresh
     if (activeTab === 'update') {
       return (
         <UpdatePanel
-          linked={linked}
           labels={labels}
-          onAddNote={onAddNote}
+          onAddComment={onAddComment}
           onRefresh={onRefresh}
-          onUnlink={onUnlink}
         />
       )
     }
 
     return <SummaryRows linked={linked} />
-  }, [activeTab, labels, linked, onAddNote, onRefresh, onUnlink])
+  }, [activeTab, labels, linked, onAddComment, onRefresh, showCopyState])
 
   return (
     <Card>
@@ -349,6 +420,7 @@ export default function WorkItemWorkspace({ linked, labels, onAddNote, onRefresh
         <MetaChip>{eta}</MetaChip>
         <MetaChip>{linked.workItemType || labels.typeUnknown}</MetaChip>
       </MetaStrip>
+      <LinkActions linked={linked} labels={labels} onUnlink={onUnlink} />
 
       <Tabs role="tablist" aria-label={labels.tabsLabel}>
         {TABS.map((tab, index) => (
@@ -379,7 +451,7 @@ export default function WorkItemWorkspace({ linked, labels, onAddNote, onRefresh
       >
         {tabContent}
       </TabPanel>
-      {copyState ? <Message validation="success">{copyState}</Message> : null}
+      {copyState ? <Message aria-live="polite" validation={copyState.type}>{copyState.text}</Message> : null}
     </Card>
   )
 }
@@ -425,7 +497,10 @@ const HealthPill = styled.span`
   font-size: 0.75rem;
   font-weight: 700;
   line-height: 1.2;
+  overflow: hidden;
   text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 `
 
 const MetaStrip = styled.div`
@@ -448,6 +523,19 @@ const MetaChip = styled.span`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+`
+
+const LinkActionsBlock = styled.div`
+  display: grid;
+  gap: ${(props) => props.theme.space.xs};
+  padding-top: ${(props) => props.theme.space.xxs};
+`
+
+const LinkActionsRow = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: ${(props) => props.theme.space.sm};
 `
 
 const Tabs = styled.div`
@@ -555,17 +643,59 @@ const CopyText = styled.p`
   color: #17363d;
   font-size: 0.875rem;
   line-height: 1.4;
+  word-break: break-word;
+`
+
+const DiscussionBlock = styled.div`
+  display: grid;
+  gap: ${(props) => props.theme.space.xs};
+  padding: ${(props) => props.theme.space.sm};
+  border: 1px solid ${(props) => props.theme.palette.grey[300]};
+  border-radius: ${(props) => props.theme.borderRadii.sm};
+  background: #ffffff;
+`
+
+const DiscussionList = styled.div`
+  display: grid;
+  gap: ${(props) => props.theme.space.xs};
+  max-height: 10rem;
+  overflow: auto;
+`
+
+const DiscussionItem = styled.article`
+  display: grid;
+  gap: 0.125rem;
+  padding-bottom: ${(props) => props.theme.space.xs};
+  border-bottom: 1px solid ${(props) => props.theme.palette.grey[200]};
+
+  &:last-child {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+`
+
+const DiscussionMeta = styled(SM)`
+  color: ${(props) => props.theme.palette.grey[700]};
+  font-weight: 700;
+`
+
+const DiscussionText = styled.p`
+  margin: 0;
+  color: #17363d;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+`
+
+const EmptyDiscussion = styled(SM)`
+  color: ${(props) => props.theme.palette.grey[700]};
 `
 
 const ButtonRow = styled.div`
   display: flex;
   flex-wrap: wrap;
   gap: ${(props) => props.theme.space.sm};
-`
-
-const Divider = styled.div`
-  height: 1px;
-  background: ${(props) => props.theme.palette.grey[300]};
 `
 
 const ConfirmRow = styled.div`
@@ -586,5 +716,10 @@ const OpenLink = styled.a`
 
   &:hover {
     text-decoration: underline;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #2f6fed;
+    outline-offset: 2px;
   }
 `

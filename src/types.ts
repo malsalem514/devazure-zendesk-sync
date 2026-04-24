@@ -3,6 +3,10 @@ export interface AppConfig {
   webhookPath: string;
   dryRun: boolean;
   inboundBearerToken?: string;
+  internalAdminToken?: string;
+  adminAlertWebhookUrl?: string;
+  commentSyncMaxAgeHours: number;
+  maxAttachmentBytes: number;
   zendesk: {
     webhookSecret?: string;
     baseUrl?: string;
@@ -10,6 +14,8 @@ export interface AppConfig {
     apiUsername?: string;
     apiToken?: string;
     appSharedSecret?: string;
+    appAllowedFormIds: number[];
+    devCompletedStatusId?: number;
   };
   devAzure: {
     orgUrl: string;
@@ -19,6 +25,8 @@ export interface AppConfig {
     areaPath?: string;
     iterationPath?: string;
     assignedTo?: string;
+    targetDateField?: string;
+    zendeskAssigneeMap: Record<string, string>;
     apiVersion: string;
     webhookPath: string;
     webhookUsername?: string;
@@ -40,6 +48,7 @@ export interface ExistingWorkItem {
 
 export interface ZendeskTicketDetail {
   id: string;
+  ticketFormId: number | null;
   subject: string | null;
   description: string | null;
   status: string | null;
@@ -59,6 +68,7 @@ export interface ZendeskTicketDetail {
   orgName: string | null;
   caseType: string | null;
   crf: string | null;
+  xref: string | null;
 }
 
 export interface ZendeskTicketEvent {
@@ -70,6 +80,16 @@ export interface ZendeskTicketEvent {
   detail: ZendeskTicketDetail;
   commentId: string | null;
   commentBody: string | null;
+  commentPublic: boolean | null;
+  commentAttachments: ZendeskCommentAttachment[];
+}
+
+export interface ZendeskCommentAttachment {
+  id: string;
+  fileName: string;
+  contentUrl: string;
+  contentType: string | null;
+  size: number | null;
 }
 
 export interface JsonPatchOperation {

@@ -34,7 +34,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "node-cron": "^3.0.3",
+    "node-cron": "^4.2.1",
     "node-zendesk": "^6.0.1",
     "oracledb": "^6.10.0"
   }

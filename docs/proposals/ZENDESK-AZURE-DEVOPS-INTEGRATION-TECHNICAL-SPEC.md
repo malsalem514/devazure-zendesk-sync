@@ -195,6 +195,7 @@ Key Zendesk fields already present:
 - `Dept` -> `41250295013395`
 - `Org Name` -> `41539146831251`
 - `Product` -> `41831367668115`
+- `Product*` -> `42498755817491`
 - `Developer` -> `42125267636499`
 - `Scopus Case #` -> `41275842189459`
 
@@ -367,8 +368,8 @@ Recommended description strategy:
 | Description + Issue Detail + Repro Steps + Acceptance Criteria | `System.Description` | Compose a structured HTML or markdown summary |
 | Priority | `Microsoft.VSTS.Common.Priority` | Requires explicit numeric mapping table |
 | Case Type | Work item type | `Defect -> Bug`, `Enhancement Request -> User Story`, `Training Request -> Task`, `Data Fix -> Task or Bug`, `Other -> Task` |
-| Org Name | `Custom.Client` | Requires value crosswalk between Zendesk and ADO picklists |
-| Product | `Custom.Product` | Requires value crosswalk between Zendesk and ADO picklists |
+| Org Name | ADO description + guarded `Custom.Client` | Preserve the Zendesk org name in the structured description; write `Custom.Client` only when the value exactly matches the approved ADO client picklist |
+| Product* | ADO route + `Custom.Product` | Use the active high-level family value for routing; detailed Product can refine `Custom.Product` later after an approved crosswalk |
 | CRF | `Custom.CRF` | Direct text map |
 | ALT_ID or Scopus reference | `Custom.XREF` | Candidate mapping; needs business approval |
 | Developer | `System.AssignedTo` | Only if value normalization to ADO identity is reliable |
@@ -411,13 +412,12 @@ Recommended first-pass transition logic:
 | Azure DevOps Condition | Zendesk `ADO Status` | Zendesk support status impact |
 | --- | --- | --- |
 | Work item in backlog or `New`, with no sprint | `In Dev Backlog` | Clear `ADO Sprint`, `ADO Sprint Start`, and `ADO Sprint End`; no automatic support-status change by default |
-| Work item assigned to sprint but not yet actively worked | `Scheduled In Sprint` | Populate sprint name and dates |
-| Work item assigned to sprint or active dev state | `Dev In Progress` | Populate sprint name and dates; optional business rule to move support custom status if approved |
-| Work item completed by engineering | `Support Ready` or `Code Completed` | Preserve last sprint data for context unless business prefers clearing it |
+| Work item assigned to sprint or active dev state | `Dev In Progress` | Populate sprint name and dates; BRD rule treats sprint assignment as development in progress |
+| Work item completed by engineering | `Support Ready` or `Code Completed` | Preserve last sprint data for context; optional `ZENDESK_DEV_COMPLETED_STATUS_ID` can move native Zendesk custom status after support approval |
 
 Recommended implementation rule:
 
-- Avoid changing Zendesk native status automatically unless the support operations team explicitly approves each transition.
+- Avoid changing Zendesk native status automatically unless the support operations team explicitly approves each transition and provides the live `Dev Completed` custom status id.
 - Prefer syncing engineering progress into `ADO Status` first.
 
 ## 9. Comment Synchronization Policy
@@ -426,14 +426,17 @@ Recommended policy:
 
 - Zendesk public replies -> Azure DevOps discussion comments
 - Zendesk private notes -> do not sync by default
-- Zendesk private notes tagged with a sync marker -> Azure DevOps discussion or integration note
-- Azure DevOps discussion comments -> Zendesk internal notes
+- Zendesk private notes tagged with `#sync` -> Azure DevOps discussion comment
+- Azure DevOps discussion comments -> Zendesk internal notes, bounded by a configurable recent-comment window
 
 Recommended guardrails:
 
 - Tag every mirrored comment with an integration marker
 - Ignore comments already stamped by the integration
+- Persist comment IDs in `COMMENT_SYNC_MAP` so retries and reconciler passes do not duplicate notes
 - Preserve author, timestamp, and origin system in the mirrored body
+- Gate inbound `ticket.comment_added` events by approved Zendesk form before persisting or enqueueing work
+- Require an active `SYNC_LINK` row before processing comment-added sync; unlinked comment events should no-op without querying ADO
 
 ## 10. Attachment Synchronization Policy
 
@@ -441,11 +444,14 @@ Recommended policy:
 
 - Sync Zendesk attachments that appear on escalated comments or ticket creation payloads
 - Upload files to Azure DevOps as attachments and link them to the work item
-- Mirror attachment metadata back into Zendesk internal notes when Azure-originated files are synced back
+- Enforce `SYNC_MAX_ATTACHMENT_BYTES` and skip oversized files instead of blocking the iframe
+- Persist attachment IDs in `ATTACHMENT_SYNC_MAP` so retries do not duplicate ADO attachments
+- Download only HTTPS attachment URLs from the configured Zendesk tenant host or Zendesk content CDN (`*.zdusercontent.com`)
+- Follow attachment redirects manually and re-validate every redirect target before downloading
 
 Open verification item:
 
-- Azure DevOps attachment upload permission is still not proven and should be tested before this moves from spec to build completion.
+- Run one live attachment smoke test with the integration PAT before declaring attachment sync production-ready.
 
 ## 11. Triggering Strategy
 
@@ -455,6 +461,8 @@ Recommended Zendesk to Azure DevOps trigger rules:
 - Run only when explicit escalation criteria are met
 - Prefer a dedicated integration tag such as `ado_escalation`
 - Optionally allow automatic escalation for high-priority tickets after approval
+- Treat Zendesk webhook/event-subscription filters as an optimization only; the integration service must repeat the approved-form scope check before enqueueing any work
+- Keep comment webhooks link-aware so ordinary comments on non-escalated tickets do not generate ADO traffic
 
 Recommended Azure DevOps to Zendesk trigger rules:
 
@@ -496,6 +504,8 @@ Recommended implementation shape:
 - execute retries and reconciliation through Oracle-backed worker tables using `SELECT FOR UPDATE SKIP LOCKED` for safe concurrent claiming
 - keep a replayable sync ledger so failed events can be retried safely after configuration fixes
 - expose minimal operator tooling for replay and failure inspection
+- protect operator tooling with `INTERNAL_ADMIN_TOKEN`; expose `GET /internal/jobs/dead` and `POST /internal/jobs/:id/retry`
+- send optional webhook alerts through `SYNC_ADMIN_ALERT_WEBHOOK_URL` for non-retryable authentication failures
 - follow the hookdeck webhook handler pattern: verify signature → parse → check dedup → return 2xx immediately → process asynchronously via job queue
 - dedup TTL on inbound events must exceed the upstream retry window (Zendesk retries for ~48 hours)
 
@@ -523,6 +533,7 @@ Security requirements:
 - Secrets stored outside source control
 - Integration-authored changes clearly identifiable in both systems
 - Audit log retention aligned to client compliance expectations
+- Attachment fetches must be host allow-listed to prevent SSRF and credential leakage
 
 Authentication direction:
 

@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AppConfig } from './types.js';
 import { parseAdoEvent } from './ado-event-parser.js';
 import {
-  addAdoNoteFromTicket,
+  addAdoCommentFromTicket,
   AppActionError,
   createAdoFromTicket,
   getTicketSummary,
@@ -13,11 +13,16 @@ import {
 import { DevAzureClient } from './devazure-client.js';
 import { buildBasicAuthHeaderValue } from './lib/basic-auth.js';
 import { healthCheck as oracleHealthCheck } from './lib/oracle.js';
+import {
+  assertZendeskTicketAllowedForSidebar,
+  isZendeskTicketEventAllowedForAutomation,
+  ZendeskTicketScopeError,
+} from './lib/zendesk-ticket-scope.js';
 import { verifyAuthorizationHeader, ZafAuthError } from './lib/zaf-auth.js';
 import { buildSyncPlan } from './sync-planner.js';
 import { parseZendeskTicketEvent } from './zendesk-event-parser.js';
 import { verifyZendeskSignature } from './zendesk-signature.js';
-import { JOB_TYPES, persistEventAndEnqueueJob } from './worker.js';
+import { JOB_TYPES, listDeadJobs, persistEventAndEnqueueJob, retryJob } from './worker.js';
 
 class HttpError extends Error {
   constructor(
@@ -106,6 +111,21 @@ function requireBasicAuth(request: IncomingMessage, expected: Buffer | null): vo
   }
 }
 
+function requireInternalAdminAuth(request: IncomingMessage, token: string | undefined): void {
+  if (!token) {
+    throw new HttpError('Internal admin API is not configured', 503);
+  }
+  const expected = Buffer.from(`Bearer ${token}`, 'utf8');
+  const received = Buffer.from(request.headers.authorization ?? '', 'utf8');
+  if (received.length !== expected.length || !timingSafeEqual(received, expected)) {
+    throw new HttpError('Missing or invalid internal admin token', 401);
+  }
+}
+
+function isAllowedAppMethod(method: string | undefined, action: string): boolean {
+  return (method === 'GET' && action === 'summary') || (method === 'POST' && action !== 'summary');
+}
+
 export function createWebhookServer(config: AppConfig): Server {
   const devAzureClient = new DevAzureClient(config.devAzure);
   const expectedBearerToken = config.inboundBearerToken
@@ -144,8 +164,25 @@ export function createWebhookServer(config: AppConfig): Server {
         return;
       }
 
+      if (path === '/internal/jobs/dead' && request.method === 'GET') {
+        requireInternalAdminAuth(request, config.internalAdminToken);
+        const requestUrl = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`);
+        const limitRaw = requestUrl.searchParams.get('limit');
+        const limit = limitRaw ? Number.parseInt(limitRaw, 10) : 20;
+        json(response, 200, { ok: true, jobs: await listDeadJobs(limit) });
+        return;
+      }
+
+      const retryJobMatch = path.match(/^\/internal\/jobs\/(\d+)\/retry$/);
+      if (retryJobMatch && request.method === 'POST') {
+        requireInternalAdminAuth(request, config.internalAdminToken);
+        const retried = await retryJob(Number(retryJobMatch[1]));
+        json(response, retried ? 202 : 404, { ok: retried, jobId: Number(retryJobMatch[1]) });
+        return;
+      }
+
       // Sidebar app endpoints: all under /app/ado/tickets/:ticketId/*
-      const appRouteMatch = path.match(/^\/app\/ado\/tickets\/([^/]+)\/(summary|create|link|unlink|note)$/);
+      const appRouteMatch = path.match(/^\/app\/ado\/tickets\/([^/]+)\/(summary|create|link|unlink|comment|note)$/);
       if (appRouteMatch) {
         const [, ticketIdRaw, action] = appRouteMatch;
         const secret = config.zendesk.appSharedSecret;
@@ -166,6 +203,13 @@ export function createWebhookServer(config: AppConfig): Server {
         }
 
         try {
+          if (!isAllowedAppMethod(request.method, action)) {
+            json(response, 405, { ok: false, message: 'Method not allowed' });
+            return;
+          }
+
+          await assertZendeskTicketAllowedForSidebar(config, ticketIdRaw);
+
           if (request.method === 'GET' && action === 'summary') {
             const summary = await getTicketSummary(config, ticketIdRaw, devAzureClient);
             json(response, 200, summary);
@@ -204,7 +248,7 @@ export function createWebhookServer(config: AppConfig): Server {
             return;
           }
 
-          if (request.method === 'POST' && action === 'note') {
+          if (request.method === 'POST' && (action === 'comment' || action === 'note')) {
             const rawBody = await readRequestBody(request);
             let body: unknown;
             try {
@@ -212,11 +256,12 @@ export function createWebhookServer(config: AppConfig): Server {
             } catch {
               throw new HttpError('Invalid JSON body', 400);
             }
-            const note = (body as { note?: unknown })?.note;
-            if (typeof note !== 'string' || note.trim() === '') {
-              throw new HttpError('Body must include note', 400);
+            const comment = (body as { comment?: unknown; note?: unknown })?.comment
+              ?? (body as { comment?: unknown; note?: unknown })?.note;
+            if (typeof comment !== 'string' || comment.trim() === '') {
+              throw new HttpError('Body must include comment', 400);
             }
-            const result = await addAdoNoteFromTicket(config, ticketIdRaw, note, devAzureClient);
+            const result = await addAdoCommentFromTicket(config, ticketIdRaw, comment, devAzureClient);
             console.log(`[app] ${result.action} ticket=${ticketIdRaw} workItem=${result.summary.workItem?.id}`);
             json(response, 200, { ok: true, ...result });
             return;
@@ -226,6 +271,9 @@ export function createWebhookServer(config: AppConfig): Server {
           return;
         } catch (err) {
           if (err instanceof AppActionError) {
+            throw new HttpError(err.message, err.statusCode);
+          }
+          if (err instanceof ZendeskTicketScopeError) {
             throw new HttpError(err.message, err.statusCode);
           }
           throw err;
@@ -298,6 +346,12 @@ export function createWebhookServer(config: AppConfig): Server {
 
       // Parse just enough to get ticket ID and event type for dedup
       const event = parseZendeskTicketEvent(rawBody);
+      if (!(await isZendeskTicketEventAllowedForAutomation(config, event))) {
+        console.log(`[devazure-zendesk-sync] skipped out-of-scope Zendesk event ticket=${event.detail.id} type=${event.type}`);
+        json(response, 202, { ok: true, action: 'skipped_out_of_scope', ticketId: event.detail.id });
+        return;
+      }
+
       const invocationId = request.headers['x-zendesk-webhook-invocation-id'];
       const dedupKey = typeof invocationId === 'string' && invocationId.trim()
         ? `zendesk:invocation:${invocationId.trim()}`

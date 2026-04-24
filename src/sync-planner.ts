@@ -24,12 +24,56 @@ const ZENDESK_PRIORITY_MAP: Record<string, number> = {
   low: 3,
 };
 
+const ADO_CLIENT_VALUES = [
+  'ACT II',
+  'CANEX',
+  'Careismatic',
+  'Cavenders',
+  'Century21',
+  'Christy Sports',
+  'CLOUD24',
+  'CLOUD25',
+  'CLOUD26',
+  'Cobra',
+  'CTS',
+  'DBC',
+  'Genesco',
+  'Harry Rosen',
+  'JD Sport',
+  'MARINE',
+  'MHO',
+  'Perry Ellis',
+  'Peter Harris',
+  'Printemps',
+  'Puma',
+  'Scrubs and Beyond',
+  'Stokes',
+] as const;
+
 function mapPriority(priority: string | null): number | null {
   if (!priority) {
     return null;
   }
 
   return ZENDESK_PRIORITY_MAP[priority.toLowerCase()] ?? null;
+}
+
+function mapClient(orgName: string | null): string | null {
+  const normalized = orgName?.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  return ADO_CLIENT_VALUES.find((client) => client.toLowerCase() === normalized) ?? null;
+}
+
+export function shouldSyncZendeskCommentToAdo(event: ZendeskTicketEvent): boolean {
+  const comment = event.commentBody?.trim();
+  if (!comment) return false;
+  if (comment.startsWith('[Synced by integration]') || comment.startsWith('[Synced by sidebar]')) {
+    return false;
+  }
+  return event.commentPublic === true || /\B#sync\b/i.test(comment);
 }
 
 function shouldSkipEvent(event: ZendeskTicketEvent): string | null {
@@ -65,6 +109,11 @@ function buildDescription(event: ZendeskTicketEvent, config: AppConfig): string 
     ['Assignee', event.detail.assigneeId ?? 'unassigned'],
     ['Group', event.detail.groupId ?? 'unknown'],
     ['Brand', event.detail.brandId ?? 'unknown'],
+    ['Product', event.detail.product ?? 'unknown'],
+    ['Case type', event.detail.caseType ?? 'unknown'],
+    ['Org name', event.detail.orgName ?? 'unknown'],
+    ['CRF', event.detail.crf ?? 'unknown'],
+    ['XREF', event.detail.xref ?? 'unknown'],
     ['Updated at', event.detail.updatedAt ?? event.time ?? 'unknown'],
     ['Source URL', ticketUrl ?? 'not configured'],
   ]
@@ -82,7 +131,7 @@ function buildDescription(event: ZendeskTicketEvent, config: AppConfig): string 
     );
   }
 
-  if (event.commentBody) {
+  if (event.commentBody && (!event.type.endsWith('ticket.comment_added') || shouldSyncZendeskCommentToAdo(event))) {
     blocks.push(
       `<h3>Latest Comment</h3><p>${escapeHtml(event.commentBody).replaceAll('\n', '<br />')}</p>`,
     );
@@ -177,16 +226,23 @@ function buildOperations(
     operations.push({ op: 'add', path: '/fields/System.IterationPath', value: config.devAzure.iterationPath });
   }
 
-  if (config.devAzure.assignedTo) {
-    operations.push({ op: 'add', path: '/fields/System.AssignedTo', value: config.devAzure.assignedTo });
+  const assignedTo = event.detail.assigneeId
+    ? (config.devAzure.zendeskAssigneeMap ?? {})[event.detail.assigneeId] ?? config.devAzure.assignedTo
+    : config.devAzure.assignedTo;
+  if (assignedTo) {
+    operations.push({ op: 'add', path: '/fields/System.AssignedTo', value: assignedTo });
   }
 
   // Zendesk field mappings
-  if (event.detail.orgName) {
-    operations.push({ op: 'add', path: '/fields/Custom.Client', value: event.detail.orgName });
+  const client = mapClient(event.detail.orgName);
+  if (client) {
+    operations.push({ op: 'add', path: '/fields/Custom.Client', value: client });
   }
   if (event.detail.crf) {
     operations.push({ op: 'add', path: '/fields/Custom.CRF', value: event.detail.crf });
+  }
+  if (event.detail.xref) {
+    operations.push({ op: 'add', path: '/fields/Custom.XREF', value: event.detail.xref });
   }
 
   // Hyperlink to Zendesk ticket (only on create)
