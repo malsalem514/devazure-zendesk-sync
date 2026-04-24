@@ -14,6 +14,7 @@ import { execute, query } from './lib/oracle.js';
 import {
   addPrivateNote,
   downloadZendeskAttachment,
+  getLatestTicketComment,
   updateTicketWithNote,
   setFieldIdMap,
 } from './lib/zendesk-api.js';
@@ -64,6 +65,29 @@ function buildAdoCommentFromZendesk(event: ZendeskTicketEvent, config: AppConfig
     '',
     comment,
   ].join('\n');
+}
+
+async function hydrateZendeskCommentEvent(
+  config: AppConfig,
+  event: ZendeskTicketEvent,
+): Promise<ZendeskTicketEvent> {
+  if (!isZendeskCommentAddedEvent(event)) {
+    return event;
+  }
+
+  const latest = await getLatestTicketComment(config, event.detail.id);
+  if (!latest) {
+    console.warn(`[job] comment event ticket=${event.detail.id} could not load latest Zendesk comment`);
+    return event;
+  }
+
+  return {
+    ...event,
+    commentId: latest.id,
+    commentBody: latest.body,
+    commentPublic: latest.public,
+    commentAttachments: latest.attachments,
+  };
 }
 
 async function hasSyncedComment(sourceSystem: string, sourceCommentId: string, targetSystem: string): Promise<boolean> {
@@ -405,7 +429,7 @@ async function handleSyncZendeskToAdo(
 ): Promise<void> {
   const { rawBody, ticketId } = payload as { rawBody: string; ticketId: string };
 
-  const event = parseZendeskTicketEvent(rawBody);
+  const event = await hydrateZendeskCommentEvent(config, parseZendeskTicketEvent(rawBody));
   const devAzureClient = getAdoClient(config);
 
   if (isZendeskCommentAddedEvent(event)) {

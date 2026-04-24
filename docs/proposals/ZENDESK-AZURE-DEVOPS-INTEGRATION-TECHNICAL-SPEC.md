@@ -437,6 +437,7 @@ Recommended guardrails:
 - Preserve author, timestamp, and origin system in the mirrored body
 - Gate inbound `ticket.comment_added` events by approved Zendesk form before persisting or enqueueing work
 - Require an active `SYNC_LINK` row before processing comment-added sync; unlinked comment events should no-op without querying ADO
+- Keep Zendesk trigger payloads compact and hydrate latest comment text, visibility, and attachments from the Zendesk Comments API to avoid brittle Liquid JSON escaping
 
 ## 10. Attachment Synchronization Policy
 

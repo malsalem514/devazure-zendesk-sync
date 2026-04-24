@@ -256,6 +256,18 @@ test('shouldSyncZendeskCommentToAdo follows public reply and #sync rules', () =>
   }), true);
   assert.equal(shouldSyncZendeskCommentToAdo({
     ...baseEvent,
+    commentBody: null,
+    commentPublic: true,
+    commentAttachments: [{
+      id: 'att-1',
+      fileName: 'screen.png',
+      contentUrl: 'https://jestaissupport.zendesk.com/attachments/token/abc',
+      contentType: 'image/png',
+      size: 512,
+    }],
+  }), true);
+  assert.equal(shouldSyncZendeskCommentToAdo({
+    ...baseEvent,
     commentBody: '#sync private support context',
     commentPublic: false,
   }), true);

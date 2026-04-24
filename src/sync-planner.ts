@@ -69,11 +69,12 @@ function mapClient(orgName: string | null): string | null {
 
 export function shouldSyncZendeskCommentToAdo(event: ZendeskTicketEvent): boolean {
   const comment = event.commentBody?.trim();
-  if (!comment) return false;
-  if (comment.startsWith('[Synced by integration]') || comment.startsWith('[Synced by sidebar]')) {
+  const hasAttachments = (event.commentAttachments ?? []).length > 0;
+  if (!comment && !hasAttachments) return false;
+  if (comment?.startsWith('[Synced by integration]') || comment?.startsWith('[Synced by sidebar]')) {
     return false;
   }
-  return event.commentPublic === true || /\B#sync\b/i.test(comment);
+  return event.commentPublic === true || (comment != null && /\B#sync\b/i.test(comment));
 }
 
 function shouldSkipEvent(event: ZendeskTicketEvent): string | null {

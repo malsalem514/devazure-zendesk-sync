@@ -1,6 +1,6 @@
 import nodeZendesk from 'node-zendesk';
 const { createClient } = nodeZendesk;
-import type { AppConfig } from '../types.js';
+import type { AppConfig, ZendeskCommentAttachment } from '../types.js';
 
 const ZENDESK_REQUEST_TIMEOUT_MS = 10_000;
 const ZENDESK_ATTACHMENT_MAX_REDIRECTS = 3;
@@ -89,6 +89,29 @@ export interface ZendeskTicketSnapshot {
   id: number;
   subject: string | null;
   customFields: Record<number, unknown>;
+}
+
+export interface ZendeskTicketCommentSnapshot {
+  id: string;
+  body: string | null;
+  public: boolean | null;
+  createdAt: string | null;
+  attachments: ZendeskCommentAttachment[];
+}
+
+function buildZendeskAuthHeader(username: string, token: string): string {
+  return `Basic ${Buffer.from(`${username}/token:${token}`, 'utf8').toString('base64')}`;
+}
+
+function requireZendeskApiConfig(config: AppConfig): { baseUrl: string; username: string; token: string } {
+  const baseUrl = config.zendesk.baseUrl;
+  const username = config.zendesk.apiUsername;
+  const token = config.zendesk.apiToken;
+  if (!baseUrl || !username || !token) {
+    throw new Error('Zendesk API config missing: ZENDESK_BASE_URL, ZENDESK_API_USERNAME, and ZENDESK_API_TOKEN are all required');
+  }
+
+  return { baseUrl: baseUrl.replace(/\/$/, ''), username, token };
 }
 
 export function unwrapZendeskTicketResponse(result: unknown): Record<string, unknown> | null {
@@ -200,17 +223,89 @@ export async function addPrivateNote(
   return null;
 }
 
+function normalizeZendeskCommentAttachment(value: unknown): ZendeskCommentAttachment | null {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const id = raw.id == null ? null : String(raw.id);
+  const fileName = raw.file_name ?? raw.filename ?? raw.name;
+  const contentUrl = raw.content_url ?? raw.url;
+  if (!id || typeof fileName !== 'string' || typeof contentUrl !== 'string') {
+    return null;
+  }
+
+  const size = Number(raw.size);
+  return {
+    id,
+    fileName,
+    contentUrl,
+    contentType: typeof raw.content_type === 'string' ? raw.content_type : null,
+    size: Number.isFinite(size) ? size : null,
+  };
+}
+
+function normalizeZendeskTicketComment(value: unknown): ZendeskTicketCommentSnapshot | null {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  if (raw.id == null) return null;
+  const body = raw.plain_body ?? raw.body ?? raw.html_body;
+  const attachments = Array.isArray(raw.attachments)
+    ? raw.attachments.flatMap((attachment) => {
+        const normalized = normalizeZendeskCommentAttachment(attachment);
+        return normalized ? [normalized] : [];
+      })
+    : [];
+
+  return {
+    id: String(raw.id),
+    body: typeof body === 'string' && body.trim() !== '' ? body : null,
+    public: typeof raw.public === 'boolean' ? raw.public : null,
+    createdAt: typeof raw.created_at === 'string' ? raw.created_at : null,
+    attachments,
+  };
+}
+
+export async function getLatestTicketComment(
+  config: AppConfig,
+  ticketId: string | number,
+): Promise<ZendeskTicketCommentSnapshot | null> {
+  const { baseUrl, username, token } = requireZendeskApiConfig(config);
+  const url = new URL(`${baseUrl}/api/v2/tickets/${ticketId}/comments.json`);
+  url.searchParams.set('sort_order', 'desc');
+  url.searchParams.set('include_inline_images', 'true');
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: buildZendeskAuthHeader(username, token),
+      Accept: 'application/json',
+    },
+    signal: AbortSignal.timeout(ZENDESK_REQUEST_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    throw new Error(`Zendesk ticket comments lookup failed with ${response.status}: ${await response.text()}`);
+  }
+
+  const payload = await response.json() as { comments?: unknown[] };
+  const comments = (payload.comments ?? [])
+    .flatMap((comment) => {
+      const normalized = normalizeZendeskTicketComment(comment);
+      return normalized ? [normalized] : [];
+    })
+    .sort((a, b) => {
+      const aTime = a.createdAt ? Date.parse(a.createdAt) : 0;
+      const bTime = b.createdAt ? Date.parse(b.createdAt) : 0;
+      if (aTime !== bTime) return bTime - aTime;
+      return Number(b.id) - Number(a.id);
+    });
+
+  return comments[0] ?? null;
+}
+
 export async function downloadZendeskAttachment(
   config: AppConfig,
   url: string,
   maxBytes: number,
 ): Promise<{ bytes: Uint8Array; contentType: string | null }> {
-  const baseUrl = config.zendesk.baseUrl;
-  const username = config.zendesk.apiUsername;
-  const token = config.zendesk.apiToken;
-  if (!baseUrl || !username || !token) {
-    throw new Error('Zendesk API config missing: ZENDESK_BASE_URL, ZENDESK_API_USERNAME, and ZENDESK_API_TOKEN are all required');
-  }
+  const { username, token } = requireZendeskApiConfig(config);
 
   const response = await fetchZendeskAttachment(config, url, username, token, 0);
   if (!response.ok) {
@@ -275,7 +370,7 @@ async function fetchZendeskAttachment(
   const response = await fetch(target.url, {
     headers: target.sendAuth
       ? {
-          Authorization: `Basic ${Buffer.from(`${username}/token:${token}`, 'utf8').toString('base64')}`,
+          Authorization: buildZendeskAuthHeader(username, token),
         }
       : undefined,
     redirect: 'manual',

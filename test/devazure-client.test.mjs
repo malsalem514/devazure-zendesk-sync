@@ -135,3 +135,27 @@ test('DevAzureClient: fetches a capped recent comments list', async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test('DevAzureClient: uploads attachments as octet-stream for ADO compatibility', async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), options });
+    return Response.json({
+      id: 'attachment-id',
+      url: 'https://dev.azure.com/example/VisionSuite/_apis/wit/attachments/attachment-id',
+    });
+  };
+
+  try {
+    const client = new DevAzureClient(createConfig());
+    const result = await client.uploadAttachment('smoke.txt', new Uint8Array([1, 2, 3]), 'text/plain');
+    assert.equal(result.id, 'attachment-id');
+    assert.match(calls[0].url, /\/wit\/attachments\?/);
+    assert.match(calls[0].url, /api-version=7\.1/);
+    assert.match(calls[0].url, /fileName=smoke\.txt/);
+    assert.equal(calls[0].options.headers['Content-Type'], 'application/octet-stream');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

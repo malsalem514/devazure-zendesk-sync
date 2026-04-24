@@ -338,13 +338,13 @@ export class DevAzureClient {
     return normalizeComment(response);
   }
 
-  async uploadAttachment(fileName: string, bytes: Uint8Array, contentType?: string | null): Promise<AttachmentReferenceResponse> {
+  async uploadAttachment(fileName: string, bytes: Uint8Array, _contentType?: string | null): Promise<AttachmentReferenceResponse> {
     const safeFileName = sanitizeFileName(fileName);
     return this.requestBytes<AttachmentReferenceResponse>(
       'POST',
       `/wit/attachments?fileName=${encodeURIComponent(safeFileName)}`,
       bytes,
-      contentType || 'application/octet-stream',
+      'application/octet-stream',
       { timeoutMs: DEVAZURE_REQUEST_TIMEOUT_MS, maxRetries: 0 },
     );
   }
