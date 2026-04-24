@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAdoSupportProjection, buildSummaryFromSnapshot } from '../dist/app-handlers.js';
+import {
+  buildAdoSupportProjection,
+  buildSummaryFromSnapshot,
+  cleanAdoCommentText,
+  prepareRecentAdoComments,
+} from '../dist/app-handlers.js';
 import { buildLinkedAdoZendeskFields } from '../dist/ado-zendesk-fields.js';
 
 const ORG_URL = 'https://dev.azure.com/jestaisinc';
@@ -161,7 +166,62 @@ test('buildSummaryFromSnapshot: enriches sidebar model with ADO work item fields
   assert.match(result.workItem?.customerUpdate ?? '', /Owner: Sam Engineer/);
 });
 
-test('buildSummaryFromSnapshot: includes recent ADO discussion comments', () => {
+test('cleanAdoCommentText: converts ADO HTML comments to compact plain text', () => {
+  assert.equal(cleanAdoCommentText('<div>testing discussion note</div><div><br></div>'), 'testing discussion note');
+  assert.equal(cleanAdoCommentText('<p>Needs review &amp; ETA</p><p>Second line</p>'), 'Needs review & ETA\nSecond line');
+  assert.equal(cleanAdoCommentText('<div>&nbsp;</div>'), null);
+});
+
+test('prepareRecentAdoComments: hides integration chatter and keeps human discussion readable', () => {
+  const comments = [
+    {
+      id: 50,
+      workItemId: 79741,
+      text: '<div>testing discussion note</div><div><br></div>',
+      createdBy: 'Musa Al-Salem',
+      createdAt: '2026-04-24T16:50:00.000Z',
+      modifiedAt: '2026-04-24T16:50:00.000Z',
+      url: 'https://dev.azure.com/jestaisinc/VisionSuite/_apis/wit/workItems/79741/comments/50',
+    },
+    {
+      id: 51,
+      workItemId: 79741,
+      text: 'Synced from Zendesk event zen:event-type:ticket.created at 2026-04-24T16:49:38.505Z',
+      createdBy: 'Jesta Integration',
+      createdAt: '2026-04-24T16:49:38.505Z',
+      modifiedAt: '2026-04-24T16:49:38.505Z',
+      url: 'https://dev.azure.com/jestaisinc/VisionSuite/_apis/wit/workItems/79741/comments/51',
+    },
+    {
+      id: 52,
+      workItemId: 79741,
+      text: '[Synced from Zendesk by integration]\nSupport comment from Zendesk #39045',
+      createdBy: 'Jesta Integration',
+      createdAt: '2026-04-24T16:48:00.000Z',
+      modifiedAt: '2026-04-24T16:48:00.000Z',
+      url: 'https://dev.azure.com/jestaisinc/VisionSuite/_apis/wit/workItems/79741/comments/52',
+    },
+    {
+      id: 53,
+      workItemId: 79741,
+      text: '<p>Engineering update &amp; owner assigned</p>',
+      createdBy: 'Sam Engineer',
+      createdAt: '2026-04-24T16:47:00.000Z',
+      modifiedAt: '2026-04-24T16:47:00.000Z',
+      url: 'https://dev.azure.com/jestaisinc/VisionSuite/_apis/wit/workItems/79741/comments/53',
+    },
+  ];
+
+  const result = prepareRecentAdoComments(comments, 3);
+  assert.deepEqual(
+    result.map((comment) => comment.id),
+    [50, 53],
+  );
+  assert.equal(result[0]?.text, 'testing discussion note');
+  assert.equal(result[1]?.text, 'Engineering update & owner assigned');
+});
+
+test('buildSummaryFromSnapshot: includes display-ready recent ADO discussion comments', () => {
   const link = {
     ADO_ORG: 'jestaisinc',
     ADO_PROJECT: 'VisionSuite',
@@ -173,8 +233,8 @@ test('buildSummaryFromSnapshot: includes recent ADO discussion comments', () => 
     {
       id: 50,
       workItemId: 79741,
-      text: 'Support comment from Zendesk #39045',
-      createdBy: 'Jesta Integration',
+      text: '<div>Customer reproduction confirmed</div><div><br></div>',
+      createdBy: 'Sam Engineer',
       createdAt: '2026-04-23T22:00:00.000Z',
       modifiedAt: '2026-04-23T22:00:00.000Z',
       url: 'https://dev.azure.com/jestaisinc/VisionSuite/_apis/wit/workItems/79741/comments/50',
@@ -182,7 +242,7 @@ test('buildSummaryFromSnapshot: includes recent ADO discussion comments', () => 
   ];
 
   const result = buildSummaryFromSnapshot(39045, link, null, ORG_URL, null, null, comments);
-  assert.deepEqual(result.workItem?.recentComments, comments);
+  assert.equal(result.workItem?.recentComments[0]?.text, 'Customer reproduction confirmed');
 });
 
 test('buildAdoSupportProjection: explicit ADO target date wins over sprint finish ETA', async () => {
