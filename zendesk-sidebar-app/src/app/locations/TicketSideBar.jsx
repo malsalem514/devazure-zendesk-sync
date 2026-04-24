@@ -16,7 +16,7 @@ function hasLinkedItem(linked) {
   return Boolean(linked?.workItemId || linked?.workItemUrl)
 }
 
-export const ADO_UPDATE_AVAILABLE_EVENT = 'ado_update_available'
+export const ADO_UPDATE_AVAILABLE_EVENT = 'api_notification.ado_update_available'
 
 function normalizeNumber(value) {
   if (value == null || value === '') return null

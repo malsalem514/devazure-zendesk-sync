@@ -108,7 +108,7 @@ For the client's "Notify section under profile" question: based on current Zende
 4. Apps Notify implementation:
    - backend sends event `ado_update_available` when `ZENDESK_APP_NOTIFY_APP_ID` is configured
    - target `agent_id` from ticket assignee when available; skip unassigned tickets rather than broadcasting
-   - sidebar listens for the event, filters by ticket ID, shows a compact banner, and refreshes summary on analyst request
+   - sidebar listens for ZAF event `api_notification.ado_update_available`, filters by ticket ID, shows a compact banner, and refreshes summary on analyst request
 5. If native ADO `Created By` remains mandatory, open a separate v2 Entra delegated-auth design and estimate.
 
 ## Recommendation To Client

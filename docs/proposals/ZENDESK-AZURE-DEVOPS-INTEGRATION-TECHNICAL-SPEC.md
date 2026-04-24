@@ -477,8 +477,8 @@ Apps Notify implementation:
 - Controlled by `ZENDESK_APP_NOTIFY_APP_ID`; unset means no Apps Notify calls.
 - Triggered after ADO-origin status updates or ADO discussion back-sync completes successfully.
 - Targets only the current Zendesk ticket assignee via `agent_id`; the backend skips notification if the ticket is unassigned instead of broadcasting to all app instances.
-- Sends event `ado_update_available` with ticket ID, ADO work item ID, URL, status, status detail, comment count, and timestamp.
-- Sidebar ignores events for other ticket IDs, shows a compact banner for the current ticket, and refreshes only when the agent clicks Refresh.
+- Sends Apps Notify event `ado_update_available` with ticket ID, ADO work item ID, URL, status, status detail, comment count, and timestamp.
+- Sidebar listens through ZAF event `api_notification.ado_update_available`, ignores events for other ticket IDs, shows a compact banner for the current ticket, and refreshes only when the agent clicks Refresh.
 - Notification failure is logged and never fails the durable sync job.
 
 ## 10. Attachment Synchronization Policy
