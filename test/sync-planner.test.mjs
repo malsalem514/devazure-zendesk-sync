@@ -99,6 +99,57 @@ test('buildSyncPlan creates a create plan for a normal ticket event', () => {
   assert.equal(plan.workItemType, 'Bug');
 });
 
+test('buildSyncPlan includes structured sidebar handoff in ADO description', () => {
+  const event = {
+    id: 'evt-handoff',
+    type: 'zen:event-type:ticket.created',
+    subject: 'zen:ticket:74186',
+    time: '2025-01-08T07:32:05.554213813Z',
+    zendeskEventVersion: '2022-11-06',
+    detail: {
+      id: '74186',
+      subject: 'Handoff ticket',
+      description: 'Customer issue summary',
+      status: 'OPEN',
+      priority: 'normal',
+      type: null,
+      tags: [],
+      updatedAt: '2025-01-08T07:32:05Z',
+      createdAt: '2025-01-08T07:31:03Z',
+      requesterId: null,
+      assigneeId: null,
+      organizationId: null,
+      groupId: null,
+      brandId: null,
+      viaChannel: 'web_service',
+      product: 'Financials',
+      orgName: 'Stokes',
+      caseType: 'Defect',
+      crf: null,
+    },
+    commentId: null,
+    commentBody: null,
+    commentPublic: null,
+    commentAttachments: [],
+    supportHandoff: {
+      reproSteps: '1. Open screen\n2. Save',
+      systemInfo: 'Chrome on Windows',
+      finalResults: 'Save fails',
+      acceptanceCriteria: 'Save succeeds',
+      submittedBy: 'Musa Al-Salem',
+    },
+  };
+
+  const plan = buildSyncPlan(event, baseConfig, null);
+  const description = plan.operations.find((operation) => operation.path === '/fields/System.Description')?.value;
+  assert.equal(typeof description, 'string');
+  assert.match(description, /<h3>Support handoff<\/h3>/);
+  assert.match(description, /Repro steps/);
+  assert.match(description, /Chrome on Windows/);
+  assert.match(description, /Acceptance criteria/);
+  assert.match(description, /Musa Al-Salem/);
+});
+
 test('buildSyncPlan keeps unmapped Zendesk org names out of ADO client picklist writes', () => {
   const event = {
     id: 'evt-1b',

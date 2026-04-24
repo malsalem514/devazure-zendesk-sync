@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getLatestTicketComment, validateZendeskAttachmentUrl } from '../dist/lib/zendesk-api.js';
+import { getInitialTicketComment, getLatestTicketComment, validateZendeskAttachmentUrl } from '../dist/lib/zendesk-api.js';
 
 const config = {
   zendesk: {
@@ -81,6 +81,36 @@ test('getLatestTicketComment: fetches newest comment with visibility and attachm
     assert.match(calls[0].url, /\/api\/v2\/tickets\/39045\/comments\.json/);
     assert.match(calls[0].url, /sort_order=desc/);
     assert.match(calls[0].options.headers.Authorization, /^Basic /);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getInitialTicketComment: fetches oldest ticket comment for ADO description fallback', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    comments: [
+      {
+        id: 10,
+        plain_body: 'Initial customer issue',
+        public: true,
+        created_at: '2026-04-23T20:00:00Z',
+        attachments: [],
+      },
+      {
+        id: 11,
+        plain_body: 'Later update',
+        public: true,
+        created_at: '2026-04-23T21:00:00Z',
+        attachments: [],
+      },
+    ],
+  });
+
+  try {
+    const comment = await getInitialTicketComment(config, 39045);
+    assert.equal(comment.id, '10');
+    assert.equal(comment.body, 'Initial customer issue');
   } finally {
     globalThis.fetch = originalFetch;
   }

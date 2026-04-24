@@ -32,10 +32,10 @@ export default function TicketSideBar() {
     [applyBackendSummary, refresh]
   )
 
-  const handleCreate = useCallback(async () => {
+  const handleCreate = useCallback(async (handoff) => {
     if (!snapshot?.ticketId) throw new Error('Ticket id not available')
     setNotice(null)
-    const result = await postCreate(client, snapshot.ticketId)
+    const result = await postCreate(client, snapshot.ticketId, handoff)
     await applyActionResult(result)
   }, [applyActionResult, client, snapshot?.ticketId])
 
@@ -197,6 +197,13 @@ export default function TicketSideBar() {
             title: i18n.t('ticket_sidebar.actions_title'),
             create: i18n.t('ticket_sidebar.create_button'),
             creatingLabel: i18n.t('ticket_sidebar.create_button_working') || 'Creating…',
+            createFormTitle: i18n.t('ticket_sidebar.create_form_title'),
+            reproStepsLabel: i18n.t('ticket_sidebar.repro_steps_label'),
+            systemInfoLabel: i18n.t('ticket_sidebar.system_info_label'),
+            finalResultsLabel: i18n.t('ticket_sidebar.final_results_label'),
+            acceptanceCriteriaLabel: i18n.t('ticket_sidebar.acceptance_criteria_label'),
+            createSubmit: i18n.t('ticket_sidebar.create_submit_button'),
+            createCancel: i18n.t('ticket_sidebar.create_cancel_button'),
             linkLabel: i18n.t('ticket_sidebar.link_label'),
             linkPlaceholder: i18n.t('ticket_sidebar.link_placeholder'),
             link: i18n.t('ticket_sidebar.link_button'),

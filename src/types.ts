@@ -16,6 +16,7 @@ export interface AppConfig {
     appSharedSecret?: string;
     appAllowedFormIds: number[];
     devCompletedStatusId?: number;
+    adoStatusCustomStatusMap: Record<string, number>;
   };
   devAzure: {
     orgUrl: string;
@@ -82,6 +83,15 @@ export interface ZendeskTicketEvent {
   commentBody: string | null;
   commentPublic: boolean | null;
   commentAttachments: ZendeskCommentAttachment[];
+  supportHandoff?: SupportHandoffFields | null;
+}
+
+export interface SupportHandoffFields {
+  reproSteps: string | null;
+  systemInfo: string | null;
+  finalResults: string | null;
+  acceptanceCriteria: string | null;
+  submittedBy?: string | null;
 }
 
 export interface ZendeskCommentAttachment {

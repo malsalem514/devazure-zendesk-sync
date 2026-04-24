@@ -1,4 +1,11 @@
-import type { AppConfig, ExistingWorkItem, JsonPatchOperation, SyncPlan, ZendeskTicketEvent } from './types.js';
+import type {
+  AppConfig,
+  ExistingWorkItem,
+  JsonPatchOperation,
+  SupportHandoffFields,
+  SyncPlan,
+  ZendeskTicketEvent,
+} from './types.js';
 import { resolveRoute, resolveWorkItemType } from './routing.js';
 
 function escapeHtml(value: string): string {
@@ -132,6 +139,11 @@ function buildDescription(event: ZendeskTicketEvent, config: AppConfig): string 
     );
   }
 
+  const handoff = buildSupportHandoffBlock(event.supportHandoff ?? null);
+  if (handoff) {
+    blocks.push(handoff);
+  }
+
   if (event.commentBody && (!event.type.endsWith('ticket.comment_added') || shouldSyncZendeskCommentToAdo(event))) {
     blocks.push(
       `<h3>Latest Comment</h3><p>${escapeHtml(event.commentBody).replaceAll('\n', '<br />')}</p>`,
@@ -139,6 +151,26 @@ function buildDescription(event: ZendeskTicketEvent, config: AppConfig): string 
   }
 
   return blocks.join('');
+}
+
+function formatDescriptionField(label: string, value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  if (!normalized) return null;
+  return `<h4>${escapeHtml(label)}</h4><p>${escapeHtml(normalized).replaceAll('\n', '<br />')}</p>`;
+}
+
+function buildSupportHandoffBlock(handoff: SupportHandoffFields | null): string | null {
+  if (!handoff) return null;
+
+  const blocks = [
+    formatDescriptionField('Repro steps', handoff.reproSteps),
+    formatDescriptionField('System info', handoff.systemInfo),
+    formatDescriptionField('Final result', handoff.finalResults),
+    formatDescriptionField('Acceptance criteria', handoff.acceptanceCriteria),
+    formatDescriptionField('Zendesk submitter', handoff.submittedBy),
+  ].filter((block): block is string => block != null);
+
+  return blocks.length > 0 ? `<h3>Support handoff</h3>${blocks.join('')}` : null;
 }
 
 function buildTags(event: ZendeskTicketEvent): string[] {

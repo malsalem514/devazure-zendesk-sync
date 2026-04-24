@@ -367,6 +367,8 @@ Recommended description strategy:
 
 - Do not use a single long text field as the running engineering history.
 - On escalation, write a structured support snapshot into the Azure DevOps work item description.
+- Sidebar create must include the Zendesk ticket description; if `tickets.show` omits it, use the first ticket comment as a fallback.
+- Sidebar create must collect optional repro steps, system info, final result, and acceptance criteria before creating the ADO item.
 - For ongoing updates, add selected Azure DevOps changes back to Zendesk as private notes.
 - Do not add a rolling summary field in v1; use private notes for detailed update history.
 
@@ -376,7 +378,7 @@ Recommended description strategy:
 | --- | --- | --- |
 | Ticket ID | `System.Tags` and/or dedicated reference field | Preserve deterministic link such as `zendesk:id:<ticket-id>` |
 | Subject | `System.Title` | Direct map |
-| Description + Issue Detail + Repro Steps + Acceptance Criteria | `System.Description` | Compose a structured HTML or markdown summary |
+| Description + Issue Detail + Repro Steps + System Info + Final Result + Acceptance Criteria | `System.Description` | Compose a structured HTML support handoff summary from Zendesk ticket text plus sidebar create form |
 | Priority | `Microsoft.VSTS.Common.Priority` | Requires explicit numeric mapping table |
 | Case Type | Work item type | `Defect -> Bug`, `Enhancement Request -> User Story`, `Training Request -> Task`, `Data Fix -> Task or Bug`, `Other -> Task` |
 | Org Name | ADO description + guarded `Custom.Client` | Preserve the Zendesk org name in the structured description; write `Custom.Client` only when the value exactly matches the approved ADO client picklist |
@@ -412,24 +414,24 @@ Required Azure DevOps defaults if not explicitly mapped by business rule:
 
 The BRD intent is achievable, but the exact labels should be normalized before implementation.
 
-Recommended status design:
+Implemented configurable status design:
 
-- Keep Zendesk native status and custom status focused on support workflow.
 - Use the new Zendesk `ADO Status` field for engineering workflow visibility.
-- This avoids breaking existing Zendesk queue logic while still giving agents a reliable development-state signal.
+- `ZENDESK_ADO_STATUS_CUSTOM_STATUS_MAP` can move Zendesk `custom_status_id` for approved ADO status transitions.
+- Current tenant status candidates are `Pending` for backlog, `In Progress` for active/sprint work, `On-hold` for ADO on-hold, and `Code Completed` for support-ready/completed work.
 
-Recommended first-pass transition logic:
+Current transition logic:
 
 | Azure DevOps Condition | Zendesk `ADO Status` | Zendesk support status impact |
 | --- | --- | --- |
-| Work item in backlog or `New`, with no sprint | `In Dev Backlog` | Clear `ADO Sprint`, `ADO Sprint Start`, and `ADO Sprint End`; no automatic support-status change by default |
-| Work item assigned to sprint or active dev state | `Dev In Progress` | Populate sprint name and dates; BRD rule treats sprint assignment as development in progress |
-| Work item completed by engineering | `Support Ready` or `Code Completed` | Preserve last sprint data for context; optional `ZENDESK_DEV_COMPLETED_STATUS_ID` can move native Zendesk custom status after support approval |
+| Work item in backlog or `New`, with no sprint | `In Dev Backlog` | Optional map to `Pending` |
+| Work item assigned to sprint or active dev state | `Dev In Progress` | Optional map to `In Progress`; populate sprint name/dates |
+| Work item in ADO hold state | `On Hold` | Optional map to `On-hold` |
+| Work item completed by engineering | `Support Ready` or `Code Completed` | Optional map to `Code Completed`; legacy `ZENDESK_DEV_COMPLETED_STATUS_ID` remains supported |
 
-Recommended implementation rule:
+Implementation guardrail:
 
-- Avoid changing Zendesk native status automatically unless the support operations team explicitly approves each transition and provides the live `Dev Completed` custom status id.
-- Prefer syncing engineering progress into `ADO Status` first.
+- Use only approved tenant custom status IDs; never hard-code status IDs in source code.
 
 ## 9. Comment Synchronization Policy
 
@@ -448,6 +450,7 @@ Recommended guardrails:
 - Persist comment IDs in `COMMENT_SYNC_MAP` so retries and reconciler passes do not duplicate notes
 - Preserve author, timestamp, and origin system in the mirrored body
 - Preserve the acting Zendesk sidebar user in ADO discussions, Zendesk internal notes, and audit summaries for create/link/unlink/comment actions initiated from the sidebar
+- ADO API-created work items show the credential identity as `System.CreatedBy`; true per-agent `CreatedBy` requires per-agent ADO OAuth or a privileged bypass-rules creation model. The v1 implementation stamps the Zendesk submitter into ADO description and audit surfaces.
 - Gate inbound `ticket.comment_added` events by approved Zendesk form before persisting or enqueueing work
 - Require an active `SYNC_LINK` row before processing comment-added sync; unlinked comment events should no-op without querying ADO
 - Keep Zendesk trigger payloads compact and hydrate latest comment text, visibility, and attachments from the Zendesk Comments API to avoid brittle Liquid JSON escaping
@@ -656,6 +659,8 @@ Recommended UI pattern:
 - Confirm whether v1 supports one primary linked work item or multiple linked work items per Zendesk ticket
 - Replace the temporary Cloudflare tunnel with the stable public URL before broad client usage
 - Approve whether support analysts may update ADO fields beyond discussion comments from Zendesk
+- Decide whether to invest in per-agent Azure DevOps OAuth for true ADO `System.CreatedBy`; otherwise keep service-account creation with explicit Zendesk submitter attribution.
+- Decide whether Zendesk Apps Notify API should be used for ephemeral open-sidebar alerts. Zendesk's native profile notification list is not a general persistent custom-notification target; app notify events are delivered to currently open ZAF app instances.
 
 ## 16. Recommended Next Steps
 

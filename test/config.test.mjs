@@ -30,3 +30,16 @@ test('loadConfig: explicit wildcard allows all sidebar app forms', () => {
   const config = loadConfig(baseEnv({ ZENDESK_APP_ALLOWED_FORM_IDS: '*' }));
   assert.deepEqual(config.zendesk.appAllowedFormIds, []);
 });
+
+test('loadConfig: parses ADO status to Zendesk custom status map', () => {
+  const config = loadConfig(baseEnv({
+    ZENDESK_ADO_STATUS_CUSTOM_STATUS_MAP: JSON.stringify({
+      ado_status_dev_in_progress: 39707448444179,
+      ado_status_support_ready: '43270434394131',
+    }),
+  }));
+  assert.deepEqual(config.zendesk.adoStatusCustomStatusMap, {
+    ado_status_dev_in_progress: 39707448444179,
+    ado_status_support_ready: 43270434394131,
+  });
+});

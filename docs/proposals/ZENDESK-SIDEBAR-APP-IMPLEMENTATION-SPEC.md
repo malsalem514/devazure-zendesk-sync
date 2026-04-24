@@ -115,7 +115,7 @@ It now:
 - hides itself when the ticket is not on the pilot form
 - shows a useful linked-item summary when an ADO item already exists
 - shows a useful empty state when no ADO item is linked
-- lets agents create a new ADO work item through the backend
+- lets agents open a compact create form and create a new ADO work item through the backend
 - lets agents link an existing ADO work item by numeric ID or URL through the backend
 - lets agents unlink an ADO work item from the Zendesk ticket
 - shows a compact ADO workspace when linked, organized into `Summary`, `Activity`, and `Update`
@@ -127,6 +127,7 @@ It now:
 - bounds all iframe-to-backend requests with explicit timeouts
 - coalesces duplicate refreshes and avoids refreshes while agents type in the ticket subject
 - applies action-returned summaries locally after create/link/unlink/comment instead of issuing redundant summary calls
+- includes the Zendesk ticket description or first ticket comment in the created ADO description, plus sidebar-entered repro steps, system info, final result, acceptance criteria, and Zendesk submitter
 
 It still does not need to:
 
@@ -523,7 +524,32 @@ Purpose:
 
 This can be a post-v1.0 action if needed.
 
-### 10.6 Add ADO discussion comment from Zendesk
+### 10.6 Create ADO handoff form
+
+`POST /app/ado/tickets/:ticketId/create`
+
+Request shape:
+
+```json
+{
+  "source": "zendesk_sidebar_app",
+  "handoff": {
+    "reproSteps": "1. Open Store Portal\n2. Save order",
+    "systemInfo": "Chrome 124, Windows 11, VisionSuite 24.2",
+    "finalResults": "Save fails with validation error",
+    "acceptanceCriteria": "Order save succeeds without duplicate validation"
+  }
+}
+```
+
+Behavior:
+
+- click `Create new ADO` opens the handoff form instead of immediately creating the work item
+- form values are optional but, when present, are written into the structured ADO description
+- Zendesk ticket description is included; if unavailable from `tickets.show`, the backend falls back to the first ticket comment
+- acting Zendesk agent is stamped as `Zendesk submitter` in the ADO description and remains stamped in Zendesk notes/audit logs
+
+### 10.7 Add ADO discussion comment from Zendesk
 
 `POST /app/ado/tickets/:ticketId/comment`
 
@@ -547,7 +573,7 @@ Behavior:
 
 This is the first analyst-safe write action because it improves engineering context without changing ADO workflow ownership.
 
-### 10.7 Sidebar actor attribution
+### 10.8 Sidebar actor attribution
 
 Every sidebar mutation must be attributable. The frontend resolves `currentUser` through ZAF for create, link, unlink, and ADO discussion-comment actions, then includes this actor in the signed ZAF JWT claims:
 
@@ -564,6 +590,8 @@ The backend must derive sidebar actor identity from verified JWT claims, not fro
 - Oracle `AUDIT_LOG.SUMMARY`
 
 If ZAF cannot provide a current user, the action may proceed but must stamp `Unknown Zendesk agent` so the audit gap is explicit.
+
+Azure DevOps `System.CreatedBy` remains the identity used for the ADO API call unless the future design changes to per-agent ADO OAuth or a privileged bypass-rules create flow. In v1, analyst attribution is preserved through `Zendesk submitter`, ADO discussion/comment text where relevant, Zendesk internal notes, and Oracle audit rows.
 
 ## 11. App To Backend Auth
 
@@ -791,6 +819,7 @@ Still required before wider rollout:
 Done.
 
 - linked state uses the compact ADO workspace layout
+- empty-state create uses a compact handoff form before creating ADO
 - summary endpoint returns live ADO title/type/state/owner/priority/severity/area/tags/change metadata and display-ready recent human discussion comments
 - Activity tab includes current status, last sync, last ADO change, cleaned recent ADO discussion, and copyable customer-ready update
 - Update tab can append an ADO discussion comment from Zendesk
@@ -807,6 +836,7 @@ The current implementation should satisfy all of the following:
 - The app reads the real pilot form ID and the minimal linked field IDs already documented in this project.
 - The app self-hides outside `Musa ADO Form Testing`.
 - The app shows a linked-item summary if the ticket has an active ADO link.
+- The create action opens the ADO handoff form and sends repro steps/system info/final result/acceptance criteria to the backend.
 - The app actions call the backend and apply returned summaries after create/link/unlink/comment succeeds.
 - The backend independently verifies ticket form scope for every signed app route.
 - All app-to-backend, backend-to-Zendesk, and backend-to-ADO calls have bounded wait behavior.

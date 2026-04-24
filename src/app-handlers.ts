@@ -17,10 +17,21 @@ import {
 } from './devazure-client.js';
 import { execute, query } from './lib/oracle.js';
 import { formatSidebarActor, formatSidebarActorAuditSummary } from './lib/sidebar-actor.js';
-import { getTicketRaw, updateTicketWithNote, type ZendeskTicketSnapshot } from './lib/zendesk-api.js';
+import {
+  getInitialTicketComment,
+  getTicketRaw,
+  updateTicketWithNote,
+  type ZendeskTicketSnapshot,
+} from './lib/zendesk-api.js';
 import { buildSyncPlan } from './sync-planner.js';
 import { ZENDESK_FIELD_IDS, ZENDESK_ROUTING_FIELD_IDS } from './zendesk-field-ids.js';
-import type { AppConfig, SidebarActor, ZendeskTicketDetail, ZendeskTicketEvent } from './types.js';
+import type {
+  AppConfig,
+  SidebarActor,
+  SupportHandoffFields,
+  ZendeskTicketDetail,
+  ZendeskTicketEvent,
+} from './types.js';
 
 export { cleanAdoCommentText, prepareRecentAdoComments } from './ado-comments.js';
 
@@ -530,11 +541,42 @@ export interface CreateResult {
   summary: SummaryResponse;
 }
 
+const HANDOFF_FIELD_LIMIT = 6000;
+
+function normalizeHandoffString(value: unknown, label: string): string | null {
+  if (value == null) return null;
+  const normalized = String(value).trim();
+  if (!normalized) return null;
+  if (normalized.length > HANDOFF_FIELD_LIMIT) {
+    throw new AppActionError(`${label} must be ${HANDOFF_FIELD_LIMIT} characters or fewer`, 400);
+  }
+  return normalized;
+}
+
+function normalizeSupportHandoff(value: unknown, actor?: SidebarActor | null): SupportHandoffFields | null {
+  const raw = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const submittedBy = actor && (actor.name || actor.email || actor.userId)
+    ? formatSidebarActor(actor)
+    : null;
+  const handoff: SupportHandoffFields = {
+    reproSteps: normalizeHandoffString(raw.reproSteps, 'Repro steps'),
+    systemInfo: normalizeHandoffString(raw.systemInfo, 'System info'),
+    finalResults: normalizeHandoffString(raw.finalResults, 'Final result'),
+    acceptanceCriteria: normalizeHandoffString(raw.acceptanceCriteria, 'Acceptance criteria'),
+    submittedBy,
+  };
+
+  return Object.values(handoff).some((field) => field != null && field.trim() !== '') ? handoff : null;
+}
+
 export async function createAdoFromTicket(
   config: AppConfig,
   ticketIdRaw: string,
   ado: DevAzureClient,
   actor?: SidebarActor | null,
+  handoffInput?: unknown,
 ): Promise<CreateResult> {
   const ticketId = validateTicketId(ticketIdRaw);
 
@@ -547,7 +589,23 @@ export async function createAdoFromTicket(
   if (!fullTicket) {
     throw new AppActionError(`Zendesk ticket #${ticketId} not found`, 404);
   }
-  const event = ticketToEvent(fullTicket, 'sidebar_create');
+  let event = ticketToEvent(fullTicket, 'sidebar_create');
+  if (!event.detail.description) {
+    const initialComment = await getInitialTicketComment(config, ticketId);
+    if (initialComment?.body) {
+      event = {
+        ...event,
+        detail: {
+          ...event.detail,
+          description: initialComment.body,
+        },
+      };
+    }
+  }
+  event = {
+    ...event,
+    supportHandoff: normalizeSupportHandoff(handoffInput, actor),
+  };
 
   const existingWorkItem = await ado.findWorkItemByZendeskTicketId(event.detail.id);
   const plan = buildSyncPlan(event, config, existingWorkItem);

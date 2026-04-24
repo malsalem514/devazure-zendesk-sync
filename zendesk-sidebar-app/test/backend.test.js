@@ -78,6 +78,33 @@ describe('backend client', () => {
     )
   })
 
+  it('posts create handoff fields through the signed backend route', async () => {
+    const client = createClient()
+
+    await postCreate(client, 39045, {
+      reproSteps: 'Open order and save',
+      systemInfo: 'Chrome on Windows',
+      finalResults: 'Save fails',
+      acceptanceCriteria: 'Save succeeds'
+    })
+
+    expect(client.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'POST',
+        url: 'https://zendesk-sync.example.com/app/ado/tickets/39045/create',
+        data: JSON.stringify({
+          source: 'zendesk_sidebar_app',
+          handoff: {
+            reproSteps: 'Open order and save',
+            systemInfo: 'Chrome on Windows',
+            finalResults: 'Save fails',
+            acceptanceCriteria: 'Save succeeds'
+          }
+        })
+      })
+    )
+  })
+
   it('includes the Zendesk actor in signed mutation claims', async () => {
     const client = createClient()
 

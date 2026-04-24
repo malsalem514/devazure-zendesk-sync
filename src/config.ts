@@ -79,6 +79,24 @@ function parseStringMap(value: string | undefined, envName: string): Record<stri
   return result;
 }
 
+function parsePositiveIntMap(value: string | undefined, envName: string): Record<string, number> {
+  if (value == null || value.trim() === '') {
+    return {};
+  }
+
+  const parsed = JSON.parse(value) as unknown;
+  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`${envName} must be a JSON object`);
+  }
+
+  const result: Record<string, number> = {};
+  for (const [key, mapValue] of Object.entries(parsed)) {
+    const rawValue = typeof mapValue === 'number' ? String(mapValue) : String(mapValue ?? '');
+    result[key] = parsePositiveInt(rawValue, 1);
+  }
+  return result;
+}
+
 function requireEnv(name: string, env: NodeJS.ProcessEnv): string {
   const value = env[name];
   if (value == null || value.trim() === '') {
@@ -117,6 +135,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         DEFAULT_ZENDESK_APP_ALLOWED_FORM_IDS,
       ),
       devCompletedStatusId: parseOptionalPositiveInt(env['ZENDESK_DEV_COMPLETED_STATUS_ID']),
+      adoStatusCustomStatusMap: parsePositiveIntMap(
+        env['ZENDESK_ADO_STATUS_CUSTOM_STATUS_MAP'],
+        'ZENDESK_ADO_STATUS_CUSTOM_STATUS_MAP',
+      ),
     },
     devAzure: {
       orgUrl: requireEnv('DEVAZURE_ORG_URL', env),

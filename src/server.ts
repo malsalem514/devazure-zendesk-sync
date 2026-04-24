@@ -220,7 +220,15 @@ export function createWebhookServer(config: AppConfig): Server {
           }
 
           if (request.method === 'POST' && action === 'create') {
-            const result = await createAdoFromTicket(config, ticketIdRaw, devAzureClient, actor);
+            const rawBody = await readRequestBody(request);
+            let body: unknown;
+            try {
+              body = JSON.parse(rawBody || '{}');
+            } catch {
+              throw new HttpError('Invalid JSON body', 400);
+            }
+            const handoff = (body as { handoff?: unknown })?.handoff;
+            const result = await createAdoFromTicket(config, ticketIdRaw, devAzureClient, actor, handoff);
             console.log(`[app] ${result.action} ticket=${ticketIdRaw} workItem=${result.summary.workItem?.id}`);
             json(response, result.action === 'created' ? 201 : 200, { ok: true, ...result });
             return;

@@ -264,13 +264,14 @@ function normalizeZendeskTicketComment(value: unknown): ZendeskTicketCommentSnap
   };
 }
 
-export async function getLatestTicketComment(
+async function getTicketCommentByOrder(
   config: AppConfig,
   ticketId: string | number,
+  sortOrder: 'asc' | 'desc',
 ): Promise<ZendeskTicketCommentSnapshot | null> {
   const { baseUrl, username, token } = requireZendeskApiConfig(config);
   const url = new URL(`${baseUrl}/api/v2/tickets/${ticketId}/comments.json`);
-  url.searchParams.set('sort_order', 'desc');
+  url.searchParams.set('sort_order', sortOrder);
   url.searchParams.set('include_inline_images', 'true');
 
   const response = await fetch(url, {
@@ -293,11 +294,25 @@ export async function getLatestTicketComment(
     .sort((a, b) => {
       const aTime = a.createdAt ? Date.parse(a.createdAt) : 0;
       const bTime = b.createdAt ? Date.parse(b.createdAt) : 0;
-      if (aTime !== bTime) return bTime - aTime;
-      return Number(b.id) - Number(a.id);
+      if (aTime !== bTime) return sortOrder === 'asc' ? aTime - bTime : bTime - aTime;
+      return sortOrder === 'asc' ? Number(a.id) - Number(b.id) : Number(b.id) - Number(a.id);
     });
 
   return comments[0] ?? null;
+}
+
+export async function getLatestTicketComment(
+  config: AppConfig,
+  ticketId: string | number,
+): Promise<ZendeskTicketCommentSnapshot | null> {
+  return getTicketCommentByOrder(config, ticketId, 'desc');
+}
+
+export async function getInitialTicketComment(
+  config: AppConfig,
+  ticketId: string | number,
+): Promise<ZendeskTicketCommentSnapshot | null> {
+  return getTicketCommentByOrder(config, ticketId, 'asc');
 }
 
 export async function downloadZendeskAttachment(

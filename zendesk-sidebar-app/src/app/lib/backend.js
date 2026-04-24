@@ -158,12 +158,12 @@ export async function fetchSummary(client, ticketId) {
   })
 }
 
-export async function postCreate(client, ticketId) {
+export async function postCreate(client, ticketId, handoff = {}) {
   return appRequest(client, {
     path: `/app/ado/tickets/${ticketId}/create`,
     type: 'POST',
     includeActor: true,
-    data: JSON.stringify({ source: 'zendesk_sidebar_app' }),
+    data: JSON.stringify({ source: 'zendesk_sidebar_app', handoff }),
   })
 }
 

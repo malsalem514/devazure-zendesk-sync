@@ -663,9 +663,7 @@ async function handleSyncAdoStateToZendesk(
     }),
     privateNote,
     {
-      customStatusId: status === ADO_STATUS_TAGS.supportReady
-        ? config.zendesk.devCompletedStatusId
-        : undefined,
+      customStatusId: zendeskCustomStatusForAdoStatus(config, status),
     },
   );
 
@@ -705,6 +703,11 @@ const STATUS_LABELS: Record<AdoStatusTag, string> = {
   [ADO_STATUS_TAGS.onHold]: 'On Hold',
   [ADO_STATUS_TAGS.supportReady]: 'Support Ready',
 };
+
+function zendeskCustomStatusForAdoStatus(config: AppConfig, status: AdoStatusTag): number | undefined {
+  return config.zendesk.adoStatusCustomStatusMap[status]
+    ?? (status === ADO_STATUS_TAGS.supportReady ? config.zendesk.devCompletedStatusId : undefined);
+}
 
 function buildReverseSyncNote(status: AdoStatusTag, statusDetail: string, workItemUrl: string): string {
   return `[Synced by integration] ADO status → ${STATUS_LABELS[status]}: ${statusDetail}\n${workItemUrl}`;
