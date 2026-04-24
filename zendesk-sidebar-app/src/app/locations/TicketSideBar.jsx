@@ -17,6 +17,11 @@ function hasLinkedItem(linked) {
 }
 
 export const ADO_UPDATE_AVAILABLE_EVENT = 'api_notification.ado_update_available'
+const ADO_UPDATE_AVAILABLE_EVENT_ALIASES = [
+  ADO_UPDATE_AVAILABLE_EVENT,
+  'notification.ado_update_available',
+  'ado_update_available'
+]
 
 function normalizeNumber(value) {
   if (value == null || value === '') return null
@@ -204,9 +209,13 @@ export default function TicketSideBar() {
       setAdoNotice(normalized)
     }
 
-    client.on?.(ADO_UPDATE_AVAILABLE_EVENT, handleAdoUpdate)
+    ADO_UPDATE_AVAILABLE_EVENT_ALIASES.forEach((eventName) => {
+      client.on?.(eventName, handleAdoUpdate)
+    })
     return () => {
-      client.off?.(ADO_UPDATE_AVAILABLE_EVENT, handleAdoUpdate)
+      ADO_UPDATE_AVAILABLE_EVENT_ALIASES.forEach((eventName) => {
+        client.off?.(eventName, handleAdoUpdate)
+      })
     }
   }, [client])
 
