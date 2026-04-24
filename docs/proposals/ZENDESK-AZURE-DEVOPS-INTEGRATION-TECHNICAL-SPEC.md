@@ -370,6 +370,9 @@ Recommended description strategy:
 - On escalation, write a structured support snapshot into the Azure DevOps work item description.
 - Sidebar create must include the Zendesk ticket description; if `tickets.show` omits it, use the first ticket comment as a fallback.
 - Sidebar create must collect optional repro steps, system info, final result, and acceptance criteria before creating the ADO item.
+- Sidebar create must also write those handoff sections into the visible native ADO form fields where the work item type supports them:
+  `Microsoft.VSTS.TCM.ReproSteps`, `Microsoft.VSTS.TCM.SystemInfo`, `Microsoft.VSTS.Common.AcceptanceCriteria`,
+  `Custom.FinalResluts` for Bugs, and `Custom.FinalResults` for Tasks.
 - For ongoing updates, add selected Azure DevOps changes back to Zendesk as private notes.
 - Do not add a rolling summary field in v1; use private notes for detailed update history.
 
@@ -379,7 +382,7 @@ Recommended description strategy:
 | --- | --- | --- |
 | Ticket ID | `System.Tags` and/or dedicated reference field | Preserve deterministic link such as `zendesk:id:<ticket-id>` |
 | Subject | `System.Title` | Direct map |
-| Description + Issue Detail + Repro Steps + System Info + Final Result + Acceptance Criteria | `System.Description` | Compose a structured HTML support handoff summary from Zendesk ticket text plus sidebar create form |
+| Description + Issue Detail + Repro Steps + System Info + Final Result + Acceptance Criteria | `System.Description` plus supported native handoff fields | Compose a structured HTML support handoff summary from Zendesk ticket text plus sidebar create form; also populate visible ADO fields so engineering sees the handoff on the work item form |
 | Priority | `Microsoft.VSTS.Common.Priority` | Requires explicit numeric mapping table |
 | Case Type | Work item type | `Defect -> Bug`, `Enhancement Request -> User Story`, `Training Request -> Task`, `Data Fix -> Task or Bug`, `Other -> Task` |
 | Org Name | ADO description + guarded `Custom.Client` | Preserve the Zendesk org name in the structured description; write `Custom.Client` only when the value exactly matches the approved ADO client picklist |

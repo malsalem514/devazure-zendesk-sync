@@ -148,6 +148,83 @@ test('buildSyncPlan includes structured sidebar handoff in ADO description', () 
   assert.match(description, /Chrome on Windows/);
   assert.match(description, /Acceptance criteria/);
   assert.match(description, /Musa Al-Salem/);
+
+  assert.ok(
+    plan.operations.some((operation) => operation.path === '/fields/Microsoft.VSTS.TCM.ReproSteps'
+      && String(operation.value).includes('1. Open screen<br />2. Save')),
+  );
+  assert.ok(
+    plan.operations.some((operation) => operation.path === '/fields/Microsoft.VSTS.TCM.SystemInfo'
+      && String(operation.value).includes('Chrome on Windows')),
+  );
+  assert.ok(
+    plan.operations.some((operation) => operation.path === '/fields/Custom.FinalResluts'
+      && String(operation.value).includes('Save fails')),
+  );
+  assert.ok(
+    plan.operations.some((operation) => operation.path === '/fields/Microsoft.VSTS.Common.AcceptanceCriteria'
+      && String(operation.value).includes('Save succeeds')),
+  );
+});
+
+test('buildSyncPlan maps task handoff sections only to task-supported native fields', () => {
+  const event = {
+    id: 'evt-task-handoff',
+    type: 'zen:event-type:ticket.created',
+    subject: 'zen:ticket:74187',
+    time: '2025-01-08T07:32:05.554213813Z',
+    zendeskEventVersion: '2022-11-06',
+    detail: {
+      id: '74187',
+      subject: 'Training handoff ticket',
+      description: 'Customer needs training',
+      status: 'OPEN',
+      priority: 'normal',
+      type: null,
+      tags: [],
+      updatedAt: '2025-01-08T07:32:05Z',
+      createdAt: '2025-01-08T07:31:03Z',
+      requesterId: null,
+      assigneeId: null,
+      organizationId: null,
+      groupId: null,
+      brandId: null,
+      viaChannel: 'web_service',
+      product: 'Financials',
+      orgName: 'Stokes',
+      caseType: 'Training Request',
+      crf: null,
+    },
+    commentId: null,
+    commentBody: null,
+    commentPublic: null,
+    commentAttachments: [],
+    supportHandoff: {
+      reproSteps: 'Need walkthrough',
+      systemInfo: 'POS training tenant',
+      finalResults: 'Analyst completed initial triage',
+      acceptanceCriteria: 'Agent can complete workflow',
+      submittedBy: 'Musa Al-Salem',
+    },
+  };
+
+  const plan = buildSyncPlan(event, baseConfig, null);
+
+  assert.equal(plan.workItemType, 'Task');
+  assert.ok(
+    !plan.operations.some((operation) => operation.path === '/fields/Microsoft.VSTS.TCM.ReproSteps'),
+  );
+  assert.ok(
+    !plan.operations.some((operation) => operation.path === '/fields/Microsoft.VSTS.TCM.SystemInfo'),
+  );
+  assert.ok(
+    plan.operations.some((operation) => operation.path === '/fields/Custom.FinalResults'
+      && String(operation.value).includes('Analyst completed initial triage')),
+  );
+  assert.ok(
+    plan.operations.some((operation) => operation.path === '/fields/Microsoft.VSTS.Common.AcceptanceCriteria'
+      && String(operation.value).includes('Agent can complete workflow')),
+  );
 });
 
 test('buildSyncPlan keeps unmapped Zendesk org names out of ADO client picklist writes', () => {

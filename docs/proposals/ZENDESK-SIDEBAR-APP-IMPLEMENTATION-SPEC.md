@@ -128,6 +128,7 @@ It now:
 - coalesces duplicate refreshes and avoids refreshes while agents type in the ticket subject
 - applies action-returned summaries locally after create/link/unlink/comment instead of issuing redundant summary calls
 - includes the Zendesk ticket description or first ticket comment in the created ADO description, plus sidebar-entered repro steps, system info, final result, acceptance criteria, and Zendesk submitter
+- writes sidebar-entered handoff sections into visible native ADO fields when supported by the work item type (`Repro Steps`, `System Info`, `Acceptance Criteria`, and the appropriate custom `Final Results` field)
 
 It still does not need to:
 
@@ -545,7 +546,7 @@ Request shape:
 Behavior:
 
 - click `Create new ADO` opens the handoff form instead of immediately creating the work item
-- form values are optional but, when present, are written into the structured ADO description
+- form values are optional but, when present, are written into the structured ADO description and the native ADO form fields supported by that work item type
 - Zendesk ticket description is included; if unavailable from `tickets.show`, the backend falls back to the first ticket comment
 - acting Zendesk agent is stamped as `Zendesk submitter` in the ADO description and remains stamped in Zendesk notes/audit logs
 

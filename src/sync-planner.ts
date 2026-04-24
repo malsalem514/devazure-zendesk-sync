@@ -159,6 +159,12 @@ function formatDescriptionField(label: string, value: string | null | undefined)
   return `<h4>${escapeHtml(label)}</h4><p>${escapeHtml(normalized).replaceAll('\n', '<br />')}</p>`;
 }
 
+function formatHtmlFieldValue(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  if (!normalized) return null;
+  return `<p>${escapeHtml(normalized).replaceAll('\n', '<br />')}</p>`;
+}
+
 function buildSupportHandoffBlock(handoff: SupportHandoffFields | null): string | null {
   if (!handoff) return null;
 
@@ -171,6 +177,35 @@ function buildSupportHandoffBlock(handoff: SupportHandoffFields | null): string 
   ].filter((block): block is string => block != null);
 
   return blocks.length > 0 ? `<h3>Support handoff</h3>${blocks.join('')}` : null;
+}
+
+function buildNativeSupportHandoffOperations(
+  handoff: SupportHandoffFields | null | undefined,
+  workItemType: string,
+): JsonPatchOperation[] {
+  if (!handoff) return [];
+
+  const fieldMap: Partial<Record<keyof SupportHandoffFields, string>> = {
+    acceptanceCriteria: 'Microsoft.VSTS.Common.AcceptanceCriteria',
+  };
+
+  if (workItemType === 'Bug') {
+    fieldMap.reproSteps = 'Microsoft.VSTS.TCM.ReproSteps';
+    fieldMap.systemInfo = 'Microsoft.VSTS.TCM.SystemInfo';
+    fieldMap.finalResults = 'Custom.FinalResluts';
+  } else if (workItemType === 'Task') {
+    fieldMap.finalResults = 'Custom.FinalResults';
+  }
+
+  const operations: JsonPatchOperation[] = [];
+  for (const [handoffKey, fieldReferenceName] of Object.entries(fieldMap) as Array<[keyof SupportHandoffFields, string]>) {
+    const value = formatHtmlFieldValue(handoff[handoffKey]);
+    if (value) {
+      operations.push({ op: 'add', path: `/fields/${fieldReferenceName}`, value });
+    }
+  }
+
+  return operations;
 }
 
 function buildTags(event: ZendeskTicketEvent): string[] {
@@ -272,6 +307,8 @@ function buildOperations(
   if (event.detail.xref) {
     operations.push({ op: 'add', path: '/fields/Custom.XREF', value: event.detail.xref });
   }
+
+  operations.push(...buildNativeSupportHandoffOperations(event.supportHandoff, workItemType));
 
   // Hyperlink to Zendesk ticket (only on create)
   const hyperlinkUrl = isCreate
