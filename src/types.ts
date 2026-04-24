@@ -104,6 +104,13 @@ export interface DevAzureWorkItemReference {
   url: string;
 }
 
+export interface SidebarActor {
+  userId: string | null;
+  name: string | null;
+  email: string | null;
+  role: string | null;
+}
+
 export interface SyncPlan {
   action: 'create' | 'update' | 'noop';
   reason: string;

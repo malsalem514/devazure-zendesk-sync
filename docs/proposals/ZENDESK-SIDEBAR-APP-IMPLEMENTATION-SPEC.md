@@ -457,7 +457,8 @@ Initial v1 behavior:
 - derive creation data from the current Zendesk ticket and existing routing logic
 - create the work item
 - write the approved compact Zendesk ADO projection from the created work item
-- write a private/internal Zendesk audit note
+- write a private/internal Zendesk audit note stamped with the acting Zendesk agent
+- write an `AUDIT_LOG` summary stamped with the acting Zendesk agent
 - return `{ ok: true, action, summary }` so the sidebar can render the linked workspace without a redundant GET
 
 ### 10.3 Link existing ADO item
@@ -484,7 +485,8 @@ Behavior:
 - tag the ADO item with `zendesk:id:<ticketId>` for dedupe
 - create the active `SYNC_LINK` row
 - write the approved compact Zendesk ADO projection from the linked work item
-- add a private/internal Zendesk audit note
+- add a private/internal Zendesk audit note stamped with the acting Zendesk agent
+- write an `AUDIT_LOG` summary stamped with the acting Zendesk agent
 - return `{ ok: true, action, summary }`
 
 ### 10.4 Unlink ADO item
@@ -504,10 +506,11 @@ Behavior:
 - validate that the Zendesk ticket has an active ADO link
 - mark the link as `unlink_pending` before external side effects
 - clear `ADO Work Item ID` and all legacy mirrored ADO fields on the Zendesk ticket
-- add a private/internal Zendesk audit note in the same Zendesk update when possible
+- add a private/internal Zendesk audit note stamped with the acting Zendesk agent in the same Zendesk update when possible
 - remove the `zendesk:id:<ticketId>` tag from the linked ADO work item when present
 - deactivate the active `SYNC_LINK` row only after Zendesk fields/notes and ADO tag state have succeeded
 - if ADO tag removal succeeded but Oracle deactivation fails, attempt to restore the ADO tag and leave the link recoverable
+- write an `AUDIT_LOG` summary stamped with the acting Zendesk agent
 - return an empty linked state so the app shows create/link actions again
 
 ### 10.5 Resync linked item
@@ -537,12 +540,30 @@ Behavior:
 
 - validate that the Zendesk ticket has an active ADO link
 - create a Work Item Tracking discussion comment through the Azure DevOps Comments API
-- include the Zendesk ticket reference in the ADO discussion comment
-- add a private/internal Zendesk note recording the ADO comment action and comment content
-- write an audit-log row
+- include the Zendesk ticket reference and acting Zendesk agent in the ADO discussion comment
+- add a private/internal Zendesk note recording the ADO comment action, acting Zendesk agent, and comment content
+- write an audit-log row stamped with the acting Zendesk agent
 - return the refreshed summary including recent ADO discussion comments
 
 This is the first analyst-safe write action because it improves engineering context without changing ADO workflow ownership.
+
+### 10.7 Sidebar actor attribution
+
+Every sidebar mutation must be attributable. The frontend resolves `currentUser` through ZAF for create, link, unlink, and ADO discussion-comment actions, then includes this actor in the signed ZAF JWT claims:
+
+- `sub`
+- `zendesk_user_id`
+- `zendesk_user_name`
+- `zendesk_user_email`
+- `zendesk_user_role`
+
+The backend must derive sidebar actor identity from verified JWT claims, not from request JSON. The actor should be stamped into:
+
+- ADO discussion comments created from the sidebar
+- Zendesk private/internal notes written by sidebar actions
+- Oracle `AUDIT_LOG.SUMMARY`
+
+If ZAF cannot provide a current user, the action may proceed but must stamp `Unknown Zendesk agent` so the audit gap is explicit.
 
 ## 11. App To Backend Auth
 
@@ -552,6 +573,7 @@ Current implementation:
 - requests use Zendesk proxying
 - requests include a ZAF JWT in the `Authorization` header
 - the backend verifies the JWT using a shared secret stored as a secure app setting
+- sidebar mutations include signed Zendesk actor claims so create/link/unlink/comment actions can be attributed
 - the non-secret backend URL comes from normal installation metadata
 - the shared secret stays in a secure Zendesk app setting scoped to `jwt_secret_key`
 - the app manifest keeps the backend host in `domainWhitelist`
@@ -597,6 +619,7 @@ Research basis:
 | Free-text Zendesk org sent to ADO client picklist | ADO create/update could fail when Zendesk `Org Name` did not exactly match an allowed `Custom.Client` value | `Org Name` is preserved in the ADO description, and `Custom.Client` is written only for approved ADO client values |
 | ADO discussion hidden from support | Sidebar-added ADO context could be present in ADO but invisible in Zendesk, forcing agents back into ADO to confirm it | Summary now includes the newest ADO discussion comments and the Activity tab renders them compactly |
 | ADO note used history instead of comments | Writing `System.History` made sidebar updates look like history entries rather than normal ADO discussion comments | Sidebar update action now uses the Azure DevOps Work Item Comments API and records a Zendesk internal audit note |
+| Sidebar actions lacked visible actor attribution | Support leads could see that the integration changed ADO/Zendesk but not which analyst used the sidebar action | Mutation requests now include signed ZAF current-user claims; ADO discussions, Zendesk internal notes, and Oracle audit summaries stamp the acting Zendesk agent |
 | BRD sprint-assigned status mismatch | Sprint-assigned ADO items could appear merely scheduled when the BRD expects `Dev In Progress` | Status derivation now maps any dated sprint assignment to `Dev In Progress` unless completion or on-hold state wins |
 | Explicit ADO target date absent from ETA | Zendesk ETA could only reflect sprint end, not a board-specific delivery target | `DEVAZURE_TARGET_DATE_FIELD` is read from ADO and wins over sprint finish for `ADO ETA` |
 | ADO discussions not mirrored as Zendesk notes | Agents could see recent comments in the sidebar but lose durable ticket history | Recent non-integration ADO comments are deduped through `COMMENT_SYNC_MAP` and copied to Zendesk as internal notes |
@@ -627,6 +650,7 @@ Frontend/ZAF controls:
 
 - Use secure Zendesk app settings for secrets; never bundle tokens into iframe JavaScript.
 - Use `client.request({ secure: true, cors: false })` for signed backend calls.
+- For user-attributed actions, put the ZAF `currentUser` identity into signed JWT claims and have the backend trust only verified claims, not editable JSON body fields.
 - Resolve non-secret backend base URLs from `client.metadata().settings`; reserve `{{setting.*}}` placeholders for secure values used by the Zendesk proxy.
 - Send ZAF JWTs with `headers.Authorization = "Bearer {{jwt.token}}"` and `jwt.secret_key = "{{setting.sharedSecret}}"`.
 - Set explicit `timeout` values on all app-to-backend requests.
@@ -784,6 +808,7 @@ The current implementation should satisfy all of the following:
 - The backend independently verifies ticket form scope for every signed app route.
 - All app-to-backend, backend-to-Zendesk, and backend-to-ADO calls have bounded wait behavior.
 - All agent actions that mutate or mirror ADO state leave an internal Zendesk note.
+- Sidebar create/link/unlink/comment actions stamp the acting Zendesk agent into ADO discussions where relevant, Zendesk internal notes, and Oracle audit summaries.
 
 ## 15. Files To Treat As Source Of Truth
 

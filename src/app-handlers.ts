@@ -15,10 +15,11 @@ import {
   type AdoWorkItemSnapshot,
 } from './devazure-client.js';
 import { execute, query } from './lib/oracle.js';
+import { formatSidebarActor, formatSidebarActorAuditSummary } from './lib/sidebar-actor.js';
 import { getTicketRaw, updateTicketWithNote, type ZendeskTicketSnapshot } from './lib/zendesk-api.js';
 import { buildSyncPlan } from './sync-planner.js';
 import { ZENDESK_FIELD_IDS, ZENDESK_ROUTING_FIELD_IDS } from './zendesk-field-ids.js';
-import type { AppConfig, ZendeskTicketDetail, ZendeskTicketEvent } from './types.js';
+import type { AppConfig, SidebarActor, ZendeskTicketDetail, ZendeskTicketEvent } from './types.js';
 
 export interface SyncLinkRow {
   ADO_ORG: string;
@@ -130,6 +131,10 @@ function buildWorkItemUrl(orgUrl: string, project: string, workItemId: number | 
   const base = orgUrl.replace(/\/$/, '');
   const encodedProject = encodeURIComponent(project);
   return `${base}/${encodedProject}/_workitems/edit/${workItemId}`;
+}
+
+function sidebarActorLine(actor: SidebarActor | null | undefined): string {
+  return `Performed by: ${formatSidebarActor(actor)}`;
 }
 
 function humanizeTag(value: string | null): string | null {
@@ -525,6 +530,7 @@ export async function createAdoFromTicket(
   config: AppConfig,
   ticketIdRaw: string,
   ado: DevAzureClient,
+  actor?: SidebarActor | null,
 ): Promise<CreateResult> {
   const ticketId = validateTicketId(ticketIdRaw);
 
@@ -567,7 +573,11 @@ export async function createAdoFromTicket(
     config,
     event.detail.id,
     linkedProjection.fields,
-    `[Synced by sidebar] Linked to Azure DevOps ${plan.workItemType} #${result.id}\n${linkedProjection.workItemUrl}`,
+    [
+      `[Synced by sidebar] Linked to Azure DevOps ${plan.workItemType} #${result.id}`,
+      sidebarActorLine(actor),
+      linkedProjection.workItemUrl,
+    ].join('\n'),
   );
 
   await execute(
@@ -577,7 +587,7 @@ export async function createAdoFromTicket(
       action: 'sidebar_create',
       ticketId: event.detail.id,
       workItemId: result.id,
-      summary: `Agent-initiated create: ${plan.workItemType} #${result.id} from ticket #${event.detail.id}`,
+      summary: `${formatSidebarActorAuditSummary(actor)} initiated create: ${plan.workItemType} #${result.id} from ticket #${event.detail.id}`,
     },
   );
 
@@ -617,6 +627,7 @@ export async function linkExistingAdoWorkItem(
   ticketIdRaw: string,
   reference: string,
   ado: DevAzureClient,
+  actor?: SidebarActor | null,
 ): Promise<LinkResult> {
   const ticketId = validateTicketId(ticketIdRaw);
   const workItemId = parseWorkItemReference(reference);
@@ -667,7 +678,11 @@ export async function linkExistingAdoWorkItem(
     config,
     String(ticketId),
     buildLinkedAdoZendeskFields(workItemId, { ...projection, lastSyncAt: new Date().toISOString() }),
-    `[Synced by sidebar] Linked to existing Azure DevOps work item #${workItemId}\n${projection.workItemUrl}`,
+    [
+      `[Synced by sidebar] Linked to existing Azure DevOps work item #${workItemId}`,
+      sidebarActorLine(actor),
+      projection.workItemUrl,
+    ].join('\n'),
   );
 
   await execute(
@@ -683,7 +698,7 @@ export async function linkExistingAdoWorkItem(
     {
       ticketId: String(ticketId),
       workItemId: String(workItemId),
-      summary: `Agent-initiated link: ticket #${ticketId} → ADO #${workItemId}`,
+      summary: `${formatSidebarActorAuditSummary(actor)} initiated link: ticket #${ticketId} → ADO #${workItemId}`,
     },
   );
 
@@ -791,6 +806,7 @@ export async function unlinkAdoFromTicket(
   config: AppConfig,
   ticketIdRaw: string,
   ado: DevAzureClient,
+  actor?: SidebarActor | null,
 ): Promise<UnlinkResult> {
   const ticketId = validateTicketId(ticketIdRaw);
   const link = await loadActiveLink(ticketIdRaw);
@@ -808,7 +824,11 @@ export async function unlinkAdoFromTicket(
       config,
       String(ticketId),
       buildClearedAdoZendeskFields(),
-      `[Synced by sidebar] Unlinked Azure DevOps work item #${link.ADO_WORK_ITEM_ID} from this Zendesk ticket.\n${workItemUrl}`,
+      [
+        `[Synced by sidebar] Unlinked Azure DevOps work item #${link.ADO_WORK_ITEM_ID} from this Zendesk ticket.`,
+        sidebarActorLine(actor),
+        workItemUrl,
+      ].join('\n'),
     );
   } catch (err) {
     await tryClearUnlinkPending(ticketId);
@@ -840,7 +860,7 @@ export async function unlinkAdoFromTicket(
     {
       ticketId: String(ticketId),
       workItemId: String(link.ADO_WORK_ITEM_ID),
-      summary: `Agent-initiated unlink: ticket #${ticketId} from ADO #${link.ADO_WORK_ITEM_ID}`,
+      summary: `${formatSidebarActorAuditSummary(actor)} initiated unlink: ticket #${ticketId} from ADO #${link.ADO_WORK_ITEM_ID}`,
     },
   );
 
@@ -852,11 +872,17 @@ export interface CommentResult {
   summary: SummaryResponse;
 }
 
-function buildAdoDiscussionComment(ticketId: number, comment: string, zendeskBaseUrl: string | undefined): string {
+function buildAdoDiscussionComment(
+  ticketId: number,
+  comment: string,
+  zendeskBaseUrl: string | undefined,
+  actor?: SidebarActor | null,
+): string {
   const ticketUrl = zendeskBaseUrl ? `${zendeskBaseUrl.replace(/\/$/, '')}/agent/tickets/${ticketId}` : null;
   const lines = [
     '[Synced from Zendesk by integration]',
     `Support comment from Zendesk #${ticketId}`,
+    `Submitted by: ${formatSidebarActor(actor)}`,
     '',
     comment,
   ];
@@ -873,6 +899,7 @@ export async function addAdoCommentFromTicket(
   ticketIdRaw: string,
   comment: string,
   ado: DevAzureClient,
+  actor?: SidebarActor | null,
 ): Promise<CommentResult> {
   const ticketId = validateTicketId(ticketIdRaw);
   const normalizedComment = comment.trim();
@@ -891,7 +918,7 @@ export async function addAdoCommentFromTicket(
   try {
     await ado.addWorkItemComment(
       link.ADO_WORK_ITEM_ID,
-      buildAdoDiscussionComment(ticketId, normalizedComment, config.zendesk.baseUrl),
+      buildAdoDiscussionComment(ticketId, normalizedComment, config.zendesk.baseUrl, actor),
     );
   } catch (err) {
     if (err instanceof DevAzureHttpError) {
@@ -916,7 +943,12 @@ export async function addAdoCommentFromTicket(
     config,
     String(ticketId),
     {},
-    `[Synced by sidebar] Added ADO discussion comment to Azure DevOps work item #${link.ADO_WORK_ITEM_ID}.\n\n${normalizedComment}`,
+    [
+      `[Synced by sidebar] Added ADO discussion comment to Azure DevOps work item #${link.ADO_WORK_ITEM_ID}.`,
+      sidebarActorLine(actor),
+      '',
+      normalizedComment,
+    ].join('\n'),
   );
 
   await execute(
@@ -925,7 +957,7 @@ export async function addAdoCommentFromTicket(
     {
       ticketId: String(ticketId),
       workItemId: String(link.ADO_WORK_ITEM_ID),
-      summary: `Agent added ADO discussion comment from Zendesk ticket #${ticketId}`,
+      summary: `${formatSidebarActorAuditSummary(actor)} added ADO discussion comment from Zendesk ticket #${ticketId}`,
     },
   );
 

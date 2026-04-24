@@ -13,6 +13,14 @@ function createClient() {
         }
       }
     }),
+    get: vi.fn().mockResolvedValue({
+      currentUser: {
+        id: 123456,
+        name: 'Maya Analyst',
+        email: 'maya.analyst@example.com',
+        role: 'agent'
+      }
+    }),
     request: vi.fn().mockResolvedValue({ ok: true })
   }
 }
@@ -23,6 +31,7 @@ describe('backend client', () => {
 
     await fetchSummary(client, 39045)
 
+    expect(client.get).not.toHaveBeenCalled()
     expect(client.request).toHaveBeenCalledWith(
       expect.objectContaining({
         secure: true,
@@ -65,6 +74,29 @@ describe('backend client', () => {
         headers: {
           Authorization: 'Bearer {{jwt.token}}'
         }
+      })
+    )
+  })
+
+  it('includes the Zendesk actor in signed mutation claims', async () => {
+    const client = createClient()
+
+    await postComment(client, 39045, 'Customer impact confirmed')
+
+    expect(client.get).toHaveBeenCalledWith('currentUser')
+    expect(client.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jwt: expect.objectContaining({
+          claims: expect.objectContaining({
+            iss: 'https://jestaissupport.zendesk.com',
+            aud: 'https://zendesk-sync.example.com',
+            sub: '123456',
+            zendesk_user_id: '123456',
+            zendesk_user_name: 'Maya Analyst',
+            zendesk_user_email: 'maya.analyst@example.com',
+            zendesk_user_role: 'agent'
+          })
+        })
       })
     )
   })

@@ -435,6 +435,7 @@ Recommended guardrails:
 - Ignore comments already stamped by the integration
 - Persist comment IDs in `COMMENT_SYNC_MAP` so retries and reconciler passes do not duplicate notes
 - Preserve author, timestamp, and origin system in the mirrored body
+- Preserve the acting Zendesk sidebar user in ADO discussions, Zendesk internal notes, and audit summaries for create/link/unlink/comment actions initiated from the sidebar
 - Gate inbound `ticket.comment_added` events by approved Zendesk form before persisting or enqueueing work
 - Require an active `SYNC_LINK` row before processing comment-added sync; unlinked comment events should no-op without querying ADO
 - Keep Zendesk trigger payloads compact and hydrate latest comment text, visibility, and attachments from the Zendesk Comments API to avoid brittle Liquid JSON escaping

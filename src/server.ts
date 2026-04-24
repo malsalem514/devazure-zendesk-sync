@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import type { AppConfig } from './types.js';
+import type { AppConfig, SidebarActor } from './types.js';
 import { parseAdoEvent } from './ado-event-parser.js';
 import {
   addAdoCommentFromTicket,
@@ -18,6 +18,7 @@ import {
   isZendeskTicketEventAllowedForAutomation,
   ZendeskTicketScopeError,
 } from './lib/zendesk-ticket-scope.js';
+import { sidebarActorFromClaims } from './lib/sidebar-actor.js';
 import { verifyAuthorizationHeader, ZafAuthError } from './lib/zaf-auth.js';
 import { buildSyncPlan } from './sync-planner.js';
 import { parseZendeskTicketEvent } from './zendesk-event-parser.js';
@@ -189,12 +190,14 @@ export function createWebhookServer(config: AppConfig): Server {
         if (!secret) {
           throw new HttpError('ZAF shared secret not configured', 500);
         }
+        let actor: SidebarActor;
         try {
-          verifyAuthorizationHeader(
+          const claims = verifyAuthorizationHeader(
             typeof request.headers.authorization === 'string' ? request.headers.authorization : undefined,
             secret,
             config.zendesk.baseUrl ? { expectedIssuer: config.zendesk.baseUrl } : undefined,
           );
+          actor = sidebarActorFromClaims(claims);
         } catch (err) {
           if (err instanceof ZafAuthError) {
             throw new HttpError(err.message, err.statusCode);
@@ -217,7 +220,7 @@ export function createWebhookServer(config: AppConfig): Server {
           }
 
           if (request.method === 'POST' && action === 'create') {
-            const result = await createAdoFromTicket(config, ticketIdRaw, devAzureClient);
+            const result = await createAdoFromTicket(config, ticketIdRaw, devAzureClient, actor);
             console.log(`[app] ${result.action} ticket=${ticketIdRaw} workItem=${result.summary.workItem?.id}`);
             json(response, result.action === 'created' ? 201 : 200, { ok: true, ...result });
             return;
@@ -235,14 +238,14 @@ export function createWebhookServer(config: AppConfig): Server {
             if (typeof reference !== 'string' || reference.trim() === '') {
               throw new HttpError('Body must include workItemReference (numeric ID or ADO URL)', 400);
             }
-            const result = await linkExistingAdoWorkItem(config, ticketIdRaw, reference, devAzureClient);
+            const result = await linkExistingAdoWorkItem(config, ticketIdRaw, reference, devAzureClient, actor);
             console.log(`[app] ${result.action} ticket=${ticketIdRaw} workItem=${result.summary.workItem?.id}`);
             json(response, result.action === 'linked' ? 201 : 200, { ok: true, ...result });
             return;
           }
 
           if (request.method === 'POST' && action === 'unlink') {
-            const result = await unlinkAdoFromTicket(config, ticketIdRaw, devAzureClient);
+            const result = await unlinkAdoFromTicket(config, ticketIdRaw, devAzureClient, actor);
             console.log(`[app] ${result.action} ticket=${ticketIdRaw}`);
             json(response, 200, { ok: true, ...result });
             return;
@@ -261,7 +264,7 @@ export function createWebhookServer(config: AppConfig): Server {
             if (typeof comment !== 'string' || comment.trim() === '') {
               throw new HttpError('Body must include comment', 400);
             }
-            const result = await addAdoCommentFromTicket(config, ticketIdRaw, comment, devAzureClient);
+            const result = await addAdoCommentFromTicket(config, ticketIdRaw, comment, devAzureClient, actor);
             console.log(`[app] ${result.action} ticket=${ticketIdRaw} workItem=${result.summary.workItem?.id}`);
             json(response, 200, { ok: true, ...result });
             return;

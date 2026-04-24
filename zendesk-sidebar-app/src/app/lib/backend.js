@@ -53,6 +53,39 @@ function resolveZendeskOrigin(metadata) {
   return null
 }
 
+function normalizeActor(currentUser) {
+  if (!currentUser || typeof currentUser !== 'object') return null
+
+  const userId = currentUser.id == null ? null : String(currentUser.id).trim()
+  const name = typeof currentUser.name === 'string' ? currentUser.name.trim() : null
+  const email = typeof currentUser.email === 'string' ? currentUser.email.trim() : null
+  const role = typeof currentUser.role === 'string' ? currentUser.role.trim() : null
+
+  if (!userId && !name && !email && !role) return null
+
+  return {
+    userId: userId || null,
+    name: name || null,
+    email: email || null,
+    role: role || null
+  }
+}
+
+async function resolveCurrentActor(client) {
+  try {
+    const { currentUser } = await client.get('currentUser')
+    return normalizeActor(currentUser)
+  } catch {
+    return null
+  }
+}
+
+function compactClaims(claims) {
+  return Object.fromEntries(
+    Object.entries(claims).filter(([, value]) => value != null && String(value).trim() !== '')
+  )
+}
+
 async function resolveBackendRequestContext(client) {
   const metadata = await client.metadata()
   const rawBaseUrl = metadata?.settings?.backendBaseUrl
@@ -84,7 +117,17 @@ async function resolveBackendRequestContext(client) {
 
 async function appRequest(client, options) {
   const { baseUrl, zendeskOrigin } = await resolveBackendRequestContext(client)
-  const { path, ...requestOptions } = options
+  const { path, includeActor = false, ...requestOptions } = options
+  const actor = includeActor ? await resolveCurrentActor(client) : null
+  const claims = compactClaims({
+    iss: zendeskOrigin,
+    aud: baseUrl,
+    sub: actor?.userId || actor?.email || null,
+    zendesk_user_id: actor?.userId || null,
+    zendesk_user_name: actor?.name || null,
+    zendesk_user_email: actor?.email || null,
+    zendesk_user_role: actor?.role || null
+  })
 
   return client.request({
     secure: true,
@@ -100,10 +143,7 @@ async function appRequest(client, options) {
       algorithm: 'HS256',
       secret_key: '{{setting.appSharedSecret}}',
       expiry: JWT_EXPIRY_SECONDS,
-      claims: {
-        iss: zendeskOrigin,
-        aud: baseUrl,
-      },
+      claims,
     },
     ...requestOptions,
     url: `${baseUrl}${path}`,
@@ -122,6 +162,7 @@ export async function postCreate(client, ticketId) {
   return appRequest(client, {
     path: `/app/ado/tickets/${ticketId}/create`,
     type: 'POST',
+    includeActor: true,
     data: JSON.stringify({ source: 'zendesk_sidebar_app' }),
   })
 }
@@ -130,6 +171,7 @@ export async function postLink(client, ticketId, workItemReference) {
   return appRequest(client, {
     path: `/app/ado/tickets/${ticketId}/link`,
     type: 'POST',
+    includeActor: true,
     data: JSON.stringify({ source: 'zendesk_sidebar_app', workItemReference }),
   })
 }
@@ -138,6 +180,7 @@ export async function postUnlink(client, ticketId) {
   return appRequest(client, {
     path: `/app/ado/tickets/${ticketId}/unlink`,
     type: 'POST',
+    includeActor: true,
     data: JSON.stringify({ source: 'zendesk_sidebar_app' }),
   })
 }
@@ -146,6 +189,7 @@ export async function postComment(client, ticketId, comment) {
   return appRequest(client, {
     path: `/app/ado/tickets/${ticketId}/comment`,
     type: 'POST',
+    includeActor: true,
     data: JSON.stringify({ source: 'zendesk_sidebar_app', comment }),
   })
 }

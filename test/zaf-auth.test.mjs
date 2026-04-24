@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { verifyZafJwt, signTestJwt, verifyAuthorizationHeader, ZafAuthError } from '../dist/lib/zaf-auth.js';
+import { formatSidebarActor, sidebarActorFromClaims } from '../dist/lib/sidebar-actor.js';
 
 const SECRET = 'test-shared-secret';
 
@@ -56,4 +57,25 @@ test('verifyAuthorizationHeader: rejects missing header', () => {
 
 test('verifyAuthorizationHeader: rejects wrong scheme', () => {
   assert.throws(() => verifyAuthorizationHeader('Basic dXNlcjpwYXNz', SECRET), /Bearer/);
+});
+
+test('sidebarActorFromClaims: formats signed Zendesk actor claims for audit text', () => {
+  const actor = sidebarActorFromClaims({
+    sub: '123456',
+    zendesk_user_id: '123456',
+    zendesk_user_name: 'Maya Analyst',
+    zendesk_user_email: 'maya.analyst@example.com',
+    zendesk_user_role: 'agent',
+  });
+
+  assert.deepEqual(actor, {
+    userId: '123456',
+    name: 'Maya Analyst',
+    email: 'maya.analyst@example.com',
+    role: 'agent',
+  });
+  assert.equal(
+    formatSidebarActor(actor),
+    'Maya Analyst (maya.analyst@example.com, Zendesk user 123456, agent)',
+  );
 });
