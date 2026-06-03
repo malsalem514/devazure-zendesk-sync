@@ -269,6 +269,48 @@ test('buildSyncPlan keeps unmapped Zendesk org names out of ADO client picklist 
   );
 });
 
+test('buildSyncPlan ignores terminal Zendesk status updates for linked ADO work items', () => {
+  const event = {
+    id: 'evt-solved-existing',
+    type: 'zen:event-type:ticket.updated',
+    subject: 'zen:ticket:74192',
+    time: '2025-01-08T07:32:05.554213813Z',
+    zendeskEventVersion: '2022-11-06',
+    detail: {
+      id: '74192',
+      subject: 'Delivered patch ticket',
+      description: 'Patch delivered to customer',
+      status: 'solved',
+      priority: 'normal',
+      type: null,
+      tags: [],
+      updatedAt: '2025-01-08T07:32:05Z',
+      createdAt: '2025-01-08T07:31:03Z',
+      requesterId: null,
+      assigneeId: null,
+      organizationId: null,
+      groupId: null,
+      brandId: null,
+      viaChannel: 'web_service',
+      product: 'WMS',
+      orgName: 'Stokes',
+      caseType: 'Defect',
+      crf: null,
+      xref: null,
+    },
+    commentId: null,
+    commentBody: null,
+    commentPublic: null,
+    commentAttachments: [],
+  };
+
+  const plan = buildSyncPlan(event, baseConfig, { id: '80001', rev: 6 });
+
+  assert.equal(plan.action, 'noop');
+  assert.match(plan.reason, /terminal Zendesk status update/);
+  assert.equal(plan.operations.length, 0);
+});
+
 test('buildSyncPlan returns noop for destructive events', () => {
   const event = {
     id: 'evt-2',

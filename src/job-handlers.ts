@@ -17,12 +17,13 @@ import {
   downloadZendeskAttachment,
   getTicketAssigneeId,
   getLatestTicketComment,
+  getTicketRaw,
   notifyAdoUpdateAvailable,
   updateTicketWithNote,
   setFieldIdMap,
   type AdoUpdateAvailableNotification,
 } from './lib/zendesk-api.js';
-import { buildSyncPlan, shouldSyncZendeskCommentToAdo } from './sync-planner.js';
+import { buildSyncPlan, isTerminalZendeskStatus, shouldSyncZendeskCommentToAdo } from './sync-planner.js';
 import { parseZendeskTicketEvent } from './zendesk-event-parser.js';
 import { ZENDESK_FIELD_IDS } from './zendesk-field-ids.js';
 import type { AppConfig, ExistingWorkItem, ZendeskCommentAttachment, ZendeskTicketEvent } from './types.js';
@@ -62,6 +63,12 @@ function buildAdoCommentFromZendesk(event: ZendeskTicketEvent, config: AppConfig
     '',
     comment,
   ].join('\n');
+}
+
+function coerceString(value: unknown): string | null {
+  if (value == null) return null;
+  const normalized = String(value).trim();
+  return normalized === '' ? null : normalized;
 }
 
 async function hydrateZendeskCommentEvent(
@@ -658,6 +665,11 @@ async function handleSyncAdoStateToZendesk(
   }
 
   const privateNote = buildReverseSyncNote(status, statusDetail, workItemUrl);
+  const customStatusId = await loadZendeskCustomStatusForAdoStatusUpdate(
+    config,
+    link.ZENDESK_TICKET_ID,
+    status,
+  );
 
   await updateTicketWithNote(
     config,
@@ -674,9 +686,7 @@ async function handleSyncAdoStateToZendesk(
       lastSyncAt: new Date().toISOString(),
     }),
     privateNote,
-    {
-      customStatusId: zendeskCustomStatusForAdoStatus(config, status),
-    },
+    { customStatusId },
   );
 
   await execute(
@@ -729,6 +739,29 @@ const STATUS_LABELS: Record<AdoStatusTag, string> = {
 function zendeskCustomStatusForAdoStatus(config: AppConfig, status: AdoStatusTag): number | undefined {
   return config.zendesk.adoStatusCustomStatusMap[status]
     ?? (status === ADO_STATUS_TAGS.supportReady ? config.zendesk.devCompletedStatusId : undefined);
+}
+
+export function zendeskTicketAllowsNativeStatusSync(ticket: Record<string, unknown> | null): boolean {
+  return !isTerminalZendeskStatus(coerceString(ticket?.status));
+}
+
+export function zendeskCustomStatusForAdoStatusForTicket(
+  config: AppConfig,
+  status: AdoStatusTag,
+  ticket: Record<string, unknown> | null,
+): number | undefined {
+  if (!zendeskTicketAllowsNativeStatusSync(ticket)) return undefined;
+  return zendeskCustomStatusForAdoStatus(config, status);
+}
+
+async function loadZendeskCustomStatusForAdoStatusUpdate(
+  config: AppConfig,
+  ticketId: string,
+  status: AdoStatusTag,
+): Promise<number | undefined> {
+  if (!zendeskCustomStatusForAdoStatus(config, status)) return undefined;
+  const ticket = await getTicketRaw(config, ticketId);
+  return zendeskCustomStatusForAdoStatusForTicket(config, status, ticket);
 }
 
 function buildReverseSyncNote(status: AdoStatusTag, statusDetail: string, workItemUrl: string): string {

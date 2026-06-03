@@ -57,6 +57,11 @@ const ADO_CLIENT_VALUES = [
   'Stokes',
 ] as const;
 
+export function isTerminalZendeskStatus(status: string | null | undefined): boolean {
+  const normalized = status?.trim().toLowerCase();
+  return normalized === 'solved' || normalized === 'closed';
+}
+
 function mapPriority(priority: string | null): number | null {
   if (!priority) {
     return null;
@@ -355,6 +360,18 @@ export function buildSyncPlan(
   }
 
   const isCreate = existingWorkItem == null;
+  if (!isCreate && isTerminalZendeskStatus(event.detail.status)) {
+    return {
+      action: 'noop',
+      reason: `Ignoring terminal Zendesk status update (${event.detail.status}) for linked ADO work item ${existingWorkItem.id}`,
+      ticketId: event.detail.id,
+      workItemType,
+      title,
+      operations: [],
+      tags: [],
+    };
+  }
+
   const description = buildDescription(event, config);
   const tags = buildTags(event);
   const operations = buildOperations(
